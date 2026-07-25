@@ -1,6 +1,6 @@
 # StudyPulse Cloud AI — API Documentation
 
-**Version:** `0.4-beta`
+**Version:** `0.5-beta`
 **Runtime:** Cloudflare Workers
 **AI Provider:** MiniMax-M3 (OpenAI-compatible endpoint)
 **Last Updated:** 2026-07-25
@@ -75,6 +75,7 @@ Authorization: Bearer <API_KEY>
 ├──────────────────────────────────────────────────────────────┤
 │ 3. D1 查 sha256(key) 命中?   否 → 403 Invalid API Key      │
 │    且 enabled = 1?             否 → 403 API Key disabled     │
+│    且 expires_at 未过期?        否 → 403 API Key expired      │
 ├──────────────────────────────────────────────────────────────┤
 │ 4. request_count < limit?    否 → 429 API quota exceeded    │
 │    (limit 为 NULL 时跳过)                                    │
@@ -95,6 +96,7 @@ Authorization: Bearer <API_KEY>
 | `401` | `Missing API Key` | 未携带 `Authorization` Header |
 | `403` | `Invalid API Key` | Key 格式错误 / D1 中无此哈希 |
 | `403` | `API Key disabled` | Key 已被管理员禁用 |
+| `403` | `API Key expired` | Key 已超过 `expires_at` 有效期 |
 | `404` | `Not Found` | 请求了未定义的路径 |
 | `429` | `API quota exceeded` | 累计请求次数达到 `request_limit` 上限 |
 | `500` | `Server not configured: MINIMAX_API_KEY missing` | 服务端未配置上游 AI Key |
@@ -130,7 +132,7 @@ curl https://<worker-domain>/
 {
   "success": true,
   "service": "StudyPulse Cloud AI",
-  "version": "0.4-beta",
+  "version": "0.5-beta",
   "status": "online"
 }
 ```
@@ -172,6 +174,7 @@ curl https://<worker-domain>/
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `message` | string | 否 | 用户输入文本。缺省视为空字符串 |
+| `stream` | boolean | 否 | 是否启用 SSE 流式传输。默认 `false`。设为 `true` 时响应为 `text/event-stream` 格式 |
 
 #### 形态 B:多模态数组(MiniMax-M3 原生支持)
 
@@ -244,6 +247,116 @@ curl -X POST https://<worker-domain>/v1/chat \
 | `success` | boolean | 固定 `true` |
 | `data.reply` | string | 模型生成的回复文本 |
 
+#### 流式响应 (`stream: true`)
+
+当请求体包含 `"stream": true` 时，响应切换为 SSE 格式（透传 MiniMax 原始 OpenAI 兼容格式）。
+
+**响应头:**
+
+```
+Content-Type: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+```
+
+**SSE 事件格式:**
+
+每次生成一个 token，通过 `data:` 行逐块推送：
+
+```
+data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"你"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"好"},"finish_reason":null}]}
+
+...
+
+data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}
+
+data: [DONE]
+```
+
+**字段说明:**
+
+| SSE 字段 | 类型 | 说明 |
+|---|---|---|
+| `choices[0].delta.content` | string | 本次推送的 token 文本片段。客户端需自行拼接 |
+| `choices[0].finish_reason` | string / null | `"stop"` 表示生成结束，`null` 表示进行中 |
+| `usage` | object | 仅最后一个非 `[DONE]` 事件包含。含 `prompt_tokens`、`completion_tokens`、`total_tokens` |
+| `[DONE]` | - | 流结束标记。收到此事件后客户端应关闭连接 |
+
+**请求示例:**
+
+```bash
+# 流式纯文本
+curl -X POST https://<worker-domain>/v1/chat \
+  -H "Authorization: Bearer sp_beta_test001" \
+  -H "Content-Type: application/json" \
+  -N \
+  -d '{"message":"你好","stream":true}'
+
+# 流式多模态(图片理解)
+curl -X POST https://<worker-domain>/v1/chat \
+  -H "Authorization: Bearer sp_beta_test001" \
+  -H "Content-Type: application/json" \
+  -N \
+  -d '{
+    "content": [
+      {"type":"text","text":"这张图里有什么?"},
+      {"type":"image_url","image_url":{"url":"https://example.com/photo.jpg","detail":"default"}}
+    ],
+    "stream": true
+  }'
+```
+
+> **注意**: `-N` 参数禁用 curl 缓冲，实时显示 SSE 输出。
+
+**iOS Swift 流式调用示例:**
+
+```swift
+import Foundation
+
+func chatStream(message: String, apiKey: String) -> AsyncThrowingStream<String, Error> {
+    AsyncThrowingStream { continuation in
+        Task {
+            var request = URLRequest(url: URL(string: "https://<worker-domain>/v1/chat")!)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+            let body: [String: Any] = ["message": message, "stream": true]
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+            let (bytes, response) = try await URLSession.shared.bytes(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  http.statusCode == 200 else {
+                continuation.finish(throwing: URLError(.badServerResponse))
+                return
+            }
+
+            for try await line in bytes.lines {
+                if line.hasPrefix("data: "), line != "data: [DONE]" {
+                    let json = line.dropFirst(6)
+                    if let data = json.data(using: .utf8),
+                       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let choices = obj["choices"] as? [[String: Any]],
+                       let delta = choices.first?["delta"] as? [String: Any],
+                       let content = delta["content"] as? String {
+                        continuation.yield(content)
+                    }
+                }
+            }
+            continuation.finish()
+        }
+    }
+}
+
+// 调用
+let stream = chatStream(message: "你好", apiKey: "sp_beta_test001")
+for try await token in stream {
+    print(token, terminator: "")
+}
+```
+
 ---
 
 ## 6. 上游模型配置
@@ -256,22 +369,40 @@ curl -X POST https://<worker-domain>/v1/chat \
 | Endpoint | `https://api.minimaxi.com/v1/chat/completions` | 国内版 |
 | Model | `MiniMax-M3` | 原生多模态,1M 上下文 |
 | Thinking | `disabled` | 关闭思考过程,直接返回最终回复 |
-| Stream | 否 | 非流式,客户端需等待完整回复 |
+| Stream | 可选 | 默认关闭。`stream: true` 启用 SSE 流式传输，透传 MiniMax 原始格式 |
 
 > 如需切换模型或开启 streaming,联系服务端管理员。
 
 ---
 
-## 7. 速率限制
+## 7. 配额控制
 
-当前基于 `api_keys` 表的 `request_count` 与 `request_limit` 字段实现单 Key 配额控制:
+当前基于 `api_keys` 表的以下字段实现单 Key 配额控制:
 
-- 每个 API Key 设有累计请求上限 `request_limit`(INTEGER),`NULL` 表示不限量
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `limit_type` | TEXT | `"count"`(默认) 按请求次数；`"tokens"` 按 Token 用量 |
+| `request_limit` | INTEGER | 上限值。`NULL` 表示不限量 |
+| `request_count` | INTEGER | 累计请求次数(每次成功调用 +1) |
+| `token_count` | INTEGER | 累计 Token 消耗(每次成功调用累加 `total_tokens`) |
+
+**两种限制方式:**
+
+#### 按请求次数 (`limit_type = "count"`, 默认)
+
 - 每次 MiniMax 调用成功后 `request_count` 自增 1
-- 当 `request_count >= request_limit`(limit 不为 NULL 时),返回 `429 API quota exceeded`
-- 鉴权失败、上游 AI 失败、Worker 内部错误均不计次
+- 当 `request_count >= request_limit` 时，返回 `429 API quota exceeded`
 
-管理员可通过管理后台或脚本重置配额(`request_count = 0`)或修改 `request_limit`。
+#### 按 Token 用量 (`limit_type = "tokens"`)
+
+- 每次 MiniMax 调用成功后 `token_count` 累加本次消耗的 `total_tokens`
+- 当 `token_count >= request_limit` 时，返回 `429 API quota exceeded`
+- Token 用量来自 MiniMax 返回的 `usage.total_tokens`(非流式)或 SSE 最后一个事件的 `usage`(流式)
+- 若 Token 用量缺失(如 MiniMax 未返回)，`token_count` 不累加但请求次数仍 +1
+
+**通用规则:**
+- 鉴权失败、上游 AI 失败、Worker 内部错误均不计次
+- 管理员可通过管理后台或脚本重置配额(`request_count = 0, token_count = 0`)或修改 `request_limit` / `limit_type`
 
 > 未来版本计划增加基于时间窗口(如每分钟/每小时)的速率限制。
 
@@ -350,6 +481,7 @@ print(reply)
 | `0.2-beta` | 2026-07-25 | 接入 MiniMax-M3,真实 AI 调用;支持多模态输入;Thinking 关闭 |
 | `0.3-beta` | 2026-07-25 | 鉴权切换到 D1 持久化,只存 SHA-256 哈希 |
 | `0.4-beta` | 2026-07-25 | 启用请求额度控制(`request_limit`/`429`);启用请求日志(`request_logs`);支持 Key 启用/禁用 |
+| `0.5-beta` | 2026-07-25 | 新增 SSE 流式传输(`stream: true`)，透传 MiniMax 原始格式；客户端断开检测；usage 缺失防御标记；启用 `expires_at` 过期校验；新增 `limit_type` 支持按 Token 用量配额控制
 
 ---
 
@@ -400,9 +532,9 @@ npx wrangler d1 execute studypulse-cloud-ai-db --local \
 
 ## 12. 后续扩展路线
 
-- [ ] **流式响应**:支持 `stream: true`,SSE 透传 MiniMax 流式输出
+- [x] **流式响应**:支持 `stream: true`,SSE 透传 MiniMax 流式输出 — 已实现(v0.5-beta)
 - [x] **额度控制**:启用 `request_limit` / `request_count`,超额返回 `429` — 已实现(v0.4-beta)
 - [x] **请求日志**:`request_logs` 表记录 token 用量、延迟、状态 — 已实现(v0.4-beta)
 - [ ] **多 Provider 路由**:`providers/` 下新增 `openai.js` / `kimi.js` / `glm.js`,body 增加 `provider` 字段
-- [ ] **过期校验**:启用 `expires_at`,鉴权时检查 Key 是否过期
+- [x] **过期校验**:启用 `expires_at`,鉴权时检查 Key 是否过期 — 已实现(v0.5-beta)
 - [x] **管理 API**:增删改查 API Key 的管理端接口(需更高权限的 Admin Key) — 已实现(v0.4-beta)

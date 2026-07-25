@@ -61,5 +61,54 @@ export async function chat(messages, env) {
 		throw new Error("MiniMax API returned unexpected shape");
 	}
 
-	return reply;
+	// 返回回复文本和 token 用量，供 index.js 写入 request_logs
+	return {
+		reply,
+		usage: data?.usage ?? null,
+	};
+}
+
+/**
+ * 调用 MiniMax-M3 Chat Completions（流式 SSE）。
+ *
+ * 与 chat() 的差异：
+ *   1. 请求体增加 "stream": true
+ *   2. 返回原始 fetch Response，body 为 SSE ReadableStream
+ *   3. 上游错误仍然抛 Error（由调用方在流开始前捕获）
+ *   4. index.js 负责包装 ReadableStream、提取 usage、计次、写日志
+ *
+ * @param {Array} messages - OpenAI 风格消息数组
+ * @param {{ MINIMAX_API_KEY: string }} env - Worker 环境
+ * @returns {Promise<Response>} 上游原始 Response（body 可读流）
+ * @throws {Error} 上游非 2xx 时抛出，由调用方转 502
+ */
+export async function chatStream(messages, env) {
+	const response = await fetch(MINIMAX_CHAT_URL, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			Authorization: `Bearer ${env.MINIMAX_API_KEY}`,
+		},
+		body: JSON.stringify({
+			model: MODEL,
+			messages,
+			stream: true,
+			// 请求在流中返回 token 用量（最后一个非 [DONE] chunk 包含 usage 字段）
+			stream_options: { include_usage: true },
+			// 关闭 Thinking：M3 默认开启思考，显式 disabled 后直接给最终回复
+			thinking: { type: "disabled" },
+		}),
+	});
+
+	// 上游非 2xx：读错误正文后抛错，交由 index.js 统一处理
+	if (!response.ok) {
+		const errText = await response.text().catch(() => "");
+		throw new Error(
+			`MiniMax API error ${response.status}: ${errText.slice(0, 200)}`,
+		);
+	}
+
+	// 返回原始 Response，body 是 SSE ReadableStream
+	// index.js 将创建包装流来提取 usage 并做 post-processing
+	return response;
 }

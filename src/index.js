@@ -20,7 +20,7 @@
  */
 
 import { authenticate } from "./auth.js";
-import { chat as minimaxChat } from "./providers/minimax.js";
+import { chat as minimaxChat, chatStream as minimaxChatStream } from "./providers/minimax.js";
 import { incrementApiKeyUsage } from "./database/api_keys.js";
 import { handleAdminApi } from "./admin/routes.js";
 import { serveAdminPage } from "./admin/ui.js";
@@ -196,13 +196,18 @@ async function handleChat(request, env, ctx) {
 
 	const messages = [{ role: "user", content: userContent }];
 
-	// 5. 调用 AI Provider
-	let reply;
+	// 5. 流式分支：body.stream === true 时走 SSE 流式传输
+	if (body.stream === true) {
+		return handleChatStream(request, env, ctx, apiKey, messages);
+	}
+
+	// 6. 调用 AI Provider（非流式）
+	let result;
 	const model = "MiniMax-M3";
 	const provider = "minimax";
 
 	try {
-		reply = await minimaxChat(messages, env);
+		result = await minimaxChat(messages, env);
 	} catch (err) {
 		// 上游 AI 调用失败 -> 502
 		// 错误细节输出到 stderr，响应体只返回通用提示
@@ -229,14 +234,16 @@ async function handleChat(request, env, ctx) {
 		);
 	}
 
-	// 6. 上游成功，自增额度计数并刷新 last_used_at
+	const { reply, usage } = result;
+
+	// 7. 上游成功，自增额度计数并刷新 last_used_at
 	try {
-		await incrementApiKeyUsage(env, apiKey.id);
+		await incrementApiKeyUsage(env, apiKey.id, usage?.total_tokens);
 	} catch (err) {
 		console.error("Failed to increment API key usage:", err?.message || err);
 	}
 
-	// 7. 异步写成功日志（不阻塞响应）
+	// 8. 异步写成功日志（不阻塞响应）
 	const latency = Date.now() - startTime;
 	ctx.waitUntil(
 		writeRequestLog(env, {
@@ -247,14 +254,240 @@ async function handleChat(request, env, ctx) {
 			latency_ms: latency,
 			ip: clientIp,
 			user_agent: clientUa,
+			prompt_tokens: usage?.prompt_tokens ?? null,
+			completion_tokens: usage?.completion_tokens ?? null,
+			total_tokens: usage?.total_tokens ?? null,
 		}).catch((e) => console.error("Failed to write request log:", e?.message || e)),
 	);
 
-	// 8. 返回模型回复
+	// 9. 返回模型回复
 	return Response.json({
 		success: true,
 		data: {
 			reply,
+		},
+	});
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// POST /v1/chat (stream: true) — SSE 流式传输
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * POST /v1/chat 流式分支
+ *
+ * 与 handleChat 共享鉴权、Secret 校验、Body 解析和消息组装。
+ * 差异在于 AI 调用和响应格式：
+ *   - 调用 minimaxChatStream() 获取上游 SSE ReadableStream
+ *   - 维护 buffer 按 "\n\n" 分割完整 SSE 事件（避免网络分片导致数据丢失）
+ *   - 透传 MiniMax 原始 SSE 格式给客户端
+ *   - 从最后一个含 usage 的非 [DONE] chunk 提取 token 数据
+ *   - 流结束后通过 ctx.waitUntil 异步执行计次和日志
+ *   - 检测客户端断开（request.signal "abort"），中止时不计数
+ *   - usage 缺失时仍正常计次，日志标记 error_message="usage_missing"
+ *
+ * @param {Request} request
+ * @param {object} env
+ * @param {ExecutionContext} ctx
+ * @param {object} apiKey - 已鉴权的 API Key D1 记录
+ * @param {Array} messages - 已组装的消息数组
+ * @returns {Promise<Response>} SSE 流式响应或错误 JSON
+ */
+async function handleChatStream(request, env, ctx, apiKey, messages) {
+	const startTime = Date.now();
+	const clientIp = request.headers.get("CF-Connecting-IP") || "";
+	const clientUa = request.headers.get("User-Agent") || "";
+	const model = "MiniMax-M3";
+	const provider = "minimax";
+
+	// 1. 发起上游流式请求
+	let upstreamResponse;
+	try {
+		upstreamResponse = await minimaxChatStream(messages, env);
+	} catch (err) {
+		// 上游连接失败 → 502（流尚未开始，可返回 JSON）
+		console.error("AI provider stream error:", err?.message || err);
+		const latency = Date.now() - startTime;
+		ctx.waitUntil(
+			writeRequestLog(env, {
+				api_key_id: apiKey.id,
+				model,
+				provider,
+				status: 502,
+				latency_ms: latency,
+				ip: clientIp,
+				user_agent: clientUa,
+				error_message: (err?.message || "Unknown error").slice(0, 500),
+			}).catch((e) => console.error("Failed to write error log:", e?.message || e)),
+		);
+		return Response.json(
+			{ error: "AI request failed" },
+			{ status: 502 },
+		);
+	}
+
+	const reader = upstreamResponse.body.getReader();
+	const decoder = new TextDecoder();
+	const encoder = new TextEncoder();
+
+	// SSE 事件缓冲区：按 "\n\n" 分割完整事件，尾部残留留在 buffer 中
+	let buffer = "";
+	// 最后一个包含 usage 的 SSE data JSON 字符串
+	let lastUsageEvent = null;
+	// 客户端是否已断开
+	let aborted = false;
+
+	// 监听客户端断开
+	request.signal.addEventListener("abort", () => {
+		aborted = true;
+		reader.cancel().catch(() => {});
+	});
+
+	const wrapped = new ReadableStream({
+		async pull(controller) {
+			if (aborted) {
+				reader.cancel().catch(() => {});
+				controller.close();
+				return;
+			}
+
+			let done;
+			let value;
+
+			try {
+				({ done, value } = await reader.read());
+			} catch (err) {
+				// 流读取出错 → 不计次，异步写失败日志
+				console.error("Stream read error:", err?.message || err);
+				const latency = Date.now() - startTime;
+				ctx.waitUntil(
+					writeRequestLog(env, {
+						api_key_id: apiKey.id,
+						model,
+						provider,
+						status: 502,
+						latency_ms: latency,
+						ip: clientIp,
+						user_agent: clientUa,
+						error_message: (err?.message || "Stream read error").slice(0, 500),
+					}).catch((e) => console.error("Failed to write error log:", e?.message || e)),
+				);
+				controller.error(err);
+				return;
+			}
+
+			if (done) {
+				// 2. 流结束：处理 buffer 剩余内容 + post-processing
+				// 处理 buffer 中可能残留的最后一段（可能没有 \n\n 结尾）
+				if (buffer.trim()) {
+					const dataLine = buffer
+						.split("\n")
+						.find((line) => line.startsWith("data: "));
+					if (dataLine) {
+						const json = dataLine.slice(6);
+						if (json !== "[DONE]") {
+							try {
+								const parsed = JSON.parse(json);
+								if (parsed.usage) {
+									lastUsageEvent = json;
+								}
+							} catch {
+								/* 非 JSON 行忽略 */
+							}
+						}
+					}
+					// 透传尾部残留
+					controller.enqueue(encoder.encode(buffer));
+				}
+
+				// 3. 提取 usage
+				let usage = null;
+				if (lastUsageEvent) {
+					try {
+						usage = JSON.parse(lastUsageEvent).usage;
+					} catch {
+						/* JSON 解析失败视为无 usage */
+					}
+				}
+
+				// 4. post-processing：计次 + 写日志（异步，不阻塞流关闭）
+				const latency = Date.now() - startTime;
+				const logEntry = {
+					api_key_id: apiKey.id,
+					model,
+					provider,
+					status: 200,
+					latency_ms: latency,
+					ip: clientIp,
+					user_agent: clientUa,
+					prompt_tokens: usage?.prompt_tokens ?? null,
+					completion_tokens: usage?.completion_tokens ?? null,
+					total_tokens: usage?.total_tokens ?? null,
+				};
+
+				if (!usage) {
+					// usage 缺失：仍计入次数（防止绕过），但标记异常
+					logEntry.error_message = "usage_missing";
+					console.warn(
+						`Stream completed but usage missing for api_key_id=${apiKey.id}`,
+					);
+				}
+
+				ctx.waitUntil(
+					Promise.all([
+						incrementApiKeyUsage(env, apiKey.id, usage?.total_tokens),
+						writeRequestLog(env, logEntry),
+					]).catch((e) =>
+						console.error("Stream post-processing error:", e?.message || e),
+					),
+				);
+
+				controller.close();
+				return;
+			}
+
+			// 5. 新数据到达：追加到 buffer，按 "\n\n" 分割完整事件
+			buffer += decoder.decode(value, { stream: true });
+
+			const parts = buffer.split("\n\n");
+			// 最后一段是尾部残留，放回 buffer
+			buffer = parts.pop();
+
+			for (const event of parts) {
+				// 提取 data: 行，追踪含 usage 的事件
+				const dataLine = event
+					.split("\n")
+					.find((line) => line.startsWith("data: "));
+				if (dataLine) {
+					const json = dataLine.slice(6);
+					if (json !== "[DONE]") {
+						try {
+							const parsed = JSON.parse(json);
+							if (parsed.usage) {
+								lastUsageEvent = json;
+							}
+						} catch {
+							/* 非 JSON 行忽略 */
+						}
+					}
+				}
+
+				// 透传完整 SSE 事件（还原 "\n\n" 分隔符）
+				controller.enqueue(encoder.encode(event + "\n\n"));
+			}
+		},
+
+		cancel() {
+			aborted = true;
+			reader.cancel().catch(() => {});
+		},
+	});
+
+	return new Response(wrapped, {
+		headers: {
+			"Content-Type": "text/event-stream",
+			"Cache-Control": "no-cache",
+			Connection: "keep-alive",
 		},
 	});
 }

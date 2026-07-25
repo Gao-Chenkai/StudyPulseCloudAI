@@ -32,7 +32,7 @@ export async function getDashboardStats(env) {
 				.first("count"),
 			db
 				.prepare(
-					"SELECT COUNT(*) AS count FROM api_keys WHERE request_limit IS NOT NULL AND request_count >= request_limit",
+					"SELECT COUNT(*) AS count FROM api_keys WHERE request_limit IS NOT NULL AND ((limit_type = 'tokens' AND token_count >= request_limit) OR ((limit_type IS NULL OR limit_type = 'count') AND request_count >= request_limit))",
 				)
 				.first("count"),
 		]);
@@ -57,6 +57,7 @@ export async function getDashboardStats(env) {
 export async function listApiKeys(env) {
 	const { results } = await env.StudyPulseDB.prepare(
 		`SELECT id, name, enabled, request_count, request_limit,
+		        limit_type, token_count,
 		        user_id, notes, expires_at, created_at, last_used_at
 		   FROM api_keys
 		  ORDER BY created_at DESC`,
@@ -71,22 +72,22 @@ export async function listApiKeys(env) {
  * 返回的 rawKey 仅在创建时展示一次。
  *
  * @param {{ StudyPulseDB: D1Database }} env
- * @param {{ name: string, request_limit?: number|null, notes?: string, expires_at?: string }} params
+ * @param {{ name: string, limit_type?: string, request_limit?: number|null, notes?: string, expires_at?: string }} params
  * @returns {Promise<{id: number, rawKey: string}>}
  */
 export async function createApiKey(env, params) {
-	const { name, request_limit, notes, expires_at } = params;
+	const { name, limit_type, request_limit, notes, expires_at } = params;
 
 	// 生成 sp_beta_ + 16 位随机 hex
 	const rawKey = "sp_beta_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
 	const hash = await sha256Hex(rawKey);
 
 	const result = await env.StudyPulseDB.prepare(
-		`INSERT INTO api_keys (key_hash, name, enabled, request_count, request_limit, notes, expires_at)
-		 VALUES (?, ?, 1, 0, ?, ?, ?)
+		`INSERT INTO api_keys (key_hash, name, enabled, request_count, request_limit, limit_type, notes, expires_at)
+		 VALUES (?, ?, 1, 0, ?, ?, ?, ?)
 		 RETURNING id`,
 	)
-		.bind(hash, name, request_limit ?? null, notes ?? null, expires_at ?? null)
+		.bind(hash, name, request_limit ?? null, limit_type || "count", notes ?? null, expires_at ?? null)
 		.first("id");
 
 	return { id: result, rawKey };
@@ -96,7 +97,7 @@ export async function createApiKey(env, params) {
  * 更新 API Key（不允许修改 key_hash、request_count、created_at）。
  * @param {{ StudyPulseDB: D1Database }} env
  * @param {number} id - API Key ID
- * @param {{ name?: string, enabled?: number, request_limit?: number|null, notes?: string|null, expires_at?: string|null }} fields
+ * @param {{ name?: string, enabled?: number, limit_type?: string, request_limit?: number|null, notes?: string|null, expires_at?: string|null }} fields
  * @returns {Promise<boolean>} true = 更新成功，false = 记录不存在
  */
 export async function updateApiKey(env, id, fields) {
@@ -115,6 +116,10 @@ export async function updateApiKey(env, id, fields) {
 	if (fields.request_limit !== undefined) {
 		setClauses.push("request_limit = ?");
 		bindings.push(fields.request_limit);
+	}
+	if (fields.limit_type !== undefined) {
+		setClauses.push("limit_type = ?");
+		bindings.push(fields.limit_type);
 	}
 	if (fields.notes !== undefined) {
 		setClauses.push("notes = ?");
@@ -162,7 +167,7 @@ export async function deleteApiKey(env, id) {
  */
 export async function resetQuota(env, id) {
 	const { meta } = await env.StudyPulseDB.prepare(
-		"UPDATE api_keys SET request_count = 0 WHERE id = ?",
+		"UPDATE api_keys SET request_count = 0, token_count = 0 WHERE id = ?",
 	)
 		.bind(id)
 		.run();

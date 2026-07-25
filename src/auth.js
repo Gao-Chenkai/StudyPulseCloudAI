@@ -35,8 +35,9 @@ export async function sha256Hex(text) {
  *   2. 非 Bearer scheme         -> 403 Invalid API Key
  *   3. D1 查 key_hash 未命中     -> 403 Invalid API Key
  *   4. enabled == 0              -> 403 API Key disabled
- *   5. request_count >= limit    -> 429 API quota exceeded
- *   6. 通过                       -> { ok: true, apiKey }
+ *   5. expires_at 已过期          -> 403 API Key expired
+ *   6. request_count >= limit    -> 429 API quota exceeded
+ *   7. 通过                       -> { ok: true, apiKey }
  *
  * 注意：本函数不递增 request_count。额度自增只在 AI 调用成功后
  *       由 index.js 调用 incrementApiKeyUsage(env, apiKey.id) 完成。
@@ -89,6 +90,7 @@ export async function authenticate(request, env) {
 
 	const apiKey = await env.StudyPulseDB.prepare(
 		`SELECT id, name, enabled, request_count, request_limit,
+		        limit_type, token_count,
 		        user_id, notes, expires_at, created_at, last_used_at
 		   FROM api_keys
 		  WHERE key_hash = ?`,
@@ -118,21 +120,42 @@ export async function authenticate(request, env) {
 		};
 	}
 
-	// 5. request_count >= request_limit -> 429 API quota exceeded
-	// request_limit 为 NULL 时不限量；非 NULL 才比较
-	if (
-		apiKey.request_limit !== null &&
-		apiKey.request_count >= apiKey.request_limit
-	) {
-		return {
-			ok: false,
-			response: Response.json(
-				{ error: "API quota exceeded" },
-				{ status: 429 },
-			),
-		};
+	// 5. 检查 Key 是否已过期
+	// expires_at 为 NULL 时永不过期；非 NULL 时比较当前时间
+	if (apiKey.expires_at !== null) {
+		const now = new Date();
+		const expiresAt = new Date(apiKey.expires_at);
+		if (now >= expiresAt) {
+			return {
+				ok: false,
+				response: Response.json(
+					{ error: "API Key expired" },
+					{ status: 403 },
+				),
+			};
+		}
 	}
 
-	// 6. 通过。返回完整记录给上层用于记量与日志
+	// 6. 额度校验：按 limit_type 选择对比维度
+	// "count"（默认）：对比 request_count；"tokens"：对比 token_count
+	// request_limit 为 NULL 时不限量
+	if (apiKey.request_limit !== null) {
+		const limitType = apiKey.limit_type || "count";
+		const currentUsage = limitType === "tokens"
+			? (apiKey.token_count ?? 0)
+			: (apiKey.request_count ?? 0);
+
+		if (currentUsage >= apiKey.request_limit) {
+			return {
+				ok: false,
+				response: Response.json(
+					{ error: "API quota exceeded" },
+					{ status: 429 },
+				),
+			};
+		}
+	}
+
+	// 7. 通过。返回完整记录给上层用于记量与日志
 	return { ok: true, apiKey };
 }

@@ -128,7 +128,12 @@ function getAdminHtml(csrfToken, hasCfAccess) {
     <form id="formCreate" onsubmit="handleCreate(event)">
       <label>名称 *</label>
       <input type="text" name="name" class="input" required placeholder="例如：iOS Beta 内测 2">
-      <label>请求上限</label>
+      <label>限制方式</label>
+      <select name="limit_type" class="input">
+        <option value="count">按请求次数</option>
+        <option value="tokens">按 Token 用量</option>
+      </select>
+      <label>上限值</label>
       <input type="number" name="request_limit" class="input" placeholder="留空=不限量" min="0">
       <label>备注</label>
       <input type="text" name="notes" class="input" placeholder="发放渠道、用途说明等">
@@ -156,7 +161,12 @@ function getAdminHtml(csrfToken, hasCfAccess) {
         <option value="1">是</option>
         <option value="0">否</option>
       </select>
-      <label>请求上限</label>
+      <label>限制方式</label>
+      <select name="limit_type" class="input">
+        <option value="count">按请求次数</option>
+        <option value="tokens">按 Token 用量</option>
+      </select>
+      <label>上限值</label>
       <input type="number" name="request_limit" class="input" placeholder="留空=不限量" min="0">
       <label>备注</label>
       <input type="text" name="notes" class="input">
@@ -708,17 +718,24 @@ function renderKeysTable(keys) {
 
   const rows = keys.map(k => {
     const enabled = k.enabled === 1;
-    const exceeded = k.request_limit !== null && k.request_count >= k.request_limit;
+    const limitType = k.limit_type || "count";
+    const currentUsage = limitType === "tokens" ? (k.token_count ?? 0) : (k.request_count ?? 0);
+    const exceeded = k.request_limit !== null && currentUsage >= k.request_limit;
     let statusHtml = enabled
       ? '<span class="status-badge status-enabled">启用</span>'
       : '<span class="status-badge status-disabled">停用</span>';
     if (exceeded) statusHtml += ' <span class="status-badge status-exceeded">超额</span>';
+    if (limitType === "tokens") statusHtml += ' <span class="status-badge" style="background:#e0e7ff;color:#3730a3">Token制</span>';
+
+    const usageLabel = limitType === "tokens"
+      ? k.token_count + ' tokens / ' + (k.request_limit != null ? k.request_limit + ' tokens' : '\u221e')
+      : k.request_count + '次 / ' + (k.request_limit != null ? k.request_limit + '次' : '\u221e');
 
     return '<tr>' +
       '<td>' + k.id + '</td>' +
       '<td>' + escapeHtml(k.name) + '</td>' +
       '<td>' + statusHtml + '</td>' +
-      '<td>' + k.request_count + ' / ' + (k.request_limit != null ? k.request_limit : '\u221e') + '</td>' +
+      '<td>' + usageLabel + '</td>' +
       '<td>' + (k.expires_at ? formatDate(k.expires_at) : '-') + '</td>' +
       '<td>' + formatDate(k.created_at) + '</td>' +
       '<td>' + (k.last_used_at ? formatDate(k.last_used_at) : '\u4ece\u672a\u4f7f\u7528') + '</td>' +
@@ -749,6 +766,7 @@ async function handleCreate(e) {
   e.preventDefault();
   const form = e.target;
   const body = { name: form.name.value.trim() };
+  body.limit_type = form.limit_type.value;
   const limit = form.request_limit.value.trim();
   if (limit) body.request_limit = parseInt(limit);
   if (form.notes.value.trim()) body.notes = form.notes.value.trim();
@@ -792,6 +810,7 @@ function showEditModal(id) {
   form.name.value = key.name;
   form.enabled.value = key.enabled;
   form.request_limit.value = key.request_limit != null ? key.request_limit : "";
+  form.limit_type.value = key.limit_type || "count";
   form.notes.value = key.notes || "";
   form.expires_at.value = key.expires_at ? key.expires_at.slice(0, 16) : "";
   document.getElementById("modal-edit").style.display = "flex";
@@ -807,6 +826,7 @@ async function handleEdit(e) {
   };
   const limit = form.request_limit.value.trim();
   body.request_limit = limit ? parseInt(limit) : null;
+  body.limit_type = form.limit_type.value;
   body.notes = form.notes.value.trim() || null;
   body.expires_at = form.expires_at.value ? new Date(form.expires_at.value).toISOString() : null;
 

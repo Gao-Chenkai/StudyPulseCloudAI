@@ -206,6 +206,7 @@ async function handleCreateKey(request, env) {
 
 	const params = {
 		name: name.trim(),
+		limit_type: body.limit_type || undefined,
 		request_limit: body.request_limit ? Number(body.request_limit) : null,
 		notes: body.notes || null,
 		expires_at: body.expires_at || null,
@@ -238,6 +239,7 @@ async function handleUpdateKey(request, env) {
 	if (body.name !== undefined) fields.name = body.name;
 	if (body.enabled !== undefined) fields.enabled = body.enabled;
 	if (body.request_limit !== undefined) fields.request_limit = body.request_limit === null ? null : Number(body.request_limit);
+	if (body.limit_type !== undefined) fields.limit_type = body.limit_type;
 	if (body.notes !== undefined) fields.notes = body.notes;
 	if (body.expires_at !== undefined) fields.expires_at = body.expires_at;
 
