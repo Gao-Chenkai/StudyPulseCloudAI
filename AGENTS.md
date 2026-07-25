@@ -9,6 +9,10 @@ STOP. Your knowledge of Cloudflare Workers APIs and limits may be outdated. Alwa
 
 For all limits and quotas, retrieve from the product's `/platform/limits/` page. eg. `/workers/platform/limits`
 
+## Rules
+
+- **禁止本地直接 deploy**：不允许在本地执行 `npx wrangler deploy`，部署操作应由 CI/CD 或手动在远程环境执行。
+
 ## Commands
 
 | Command | Purpose |
