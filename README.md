@@ -341,8 +341,6 @@ npm run deploy
 
 | 域名 | 路径 | 说明 |
 |------|------|------|
-| `admin.chenkai.space` | `/admin` | 管理后台 WebUI |
-| `admin.chenkai.space` | `/api/admin/*` | 管理后台 RESTful API |
 | `localhost:8787` | `/admin` | 本地开发（路径路由兼容） |
 
 ### 认证方式
@@ -351,6 +349,8 @@ npm run deploy
 
 1. **Cloudflare Access（推荐）** — 到达 Worker 时 `Cf-Access-Jwt-Assertion` header 存在即通过，无需额外配置
 2. **ADMIN_API_TOKEN（降级）** — 本地开发或未配置 Access 时使用 Bearer Token
+
+<img width="1582" height="1035" alt="截屏2026-07-25 14 06 44" src="https://github.com/user-attachments/assets/e4d96753-4038-4f21-adf6-30c6956aff66" />
 
 ### 管理 API
 
@@ -395,6 +395,8 @@ CREATE TABLE api_keys (
 );
 ```
 
+<img width="1582" height="1035" alt="截屏2026-07-25 14 06 55" src="https://github.com/user-attachments/assets/3d10ba4d-07df-4870-889e-e7e34ba92ef1" />
+
 ### request_logs 表
 
 ```sql
@@ -414,6 +416,9 @@ CREATE TABLE request_logs (
     error_message     TEXT            -- 错误信息，截断至 500 字符
 );
 ```
+
+<img width="1582" height="1035" alt="截屏2026-07-25 14 07 00" src="https://github.com/user-attachments/assets/e465739d-7817-421b-9e3c-47d647a2d1e2" />
+
 
 > **隐私设计：** 日志表不存储 prompt 和 reply 内容。key_hash 不通过管理 API 返回。删除 Key 时 CASCADE 清理关联日志。
 
