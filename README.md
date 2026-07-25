@@ -1,8 +1,8 @@
 # StudyPulse Cloud AI
 
-Cloudflare Workers 驱动的 AI 后端网关，为 StudyPulse iOS App 提供 MiniMax-M3 多模态 AI 调用服务，含完整的管理后台。
+Cloudflare Workers 驱动的 AI 后端网关，为 StudyPulse iOS App 提供 MiniMax-M3 多模态 AI 调用服务，含完整的管理后台和 SaaS 用户体系。
 
-**版本：** 0.5-beta-github  
+**版本：** 0.6-beta
 **许可证：** Apache 2.0
 
 ---
@@ -30,10 +30,14 @@ Cloudflare Workers 驱动的 AI 后端网关，为 StudyPulse iOS App 提供 Min
 
 - **AI 网关** — iOS 客户端不直接持有第三方 AI Key，统一通过本服务代理调用
 - **多模态支持** — MiniMax-M3 原生支持文本、图片（JPEG/PNG/GIF/WEBP）、视频（MP4/AVI/MOV/MKV）输入
+- **流式响应 (SSE)** — 支持 `stream: true`，透传 MiniMax 流式输出，含用量提取和客户端断连检测
+- **SaaS 用户体系** — 邮箱验证码登录（Resend），Session Token 管理（30 天有效期），用户注册/角色/会员
+- **双鉴权** — Session Token 与 API Key 共存，统一 `authenticateRequest()` 中间件，支持 `X-API-Key` header
+- **会员计划** — 三级会员（free/plus/pro），按日请求次数和月 Token 用量控制额度，运行时过期降级
 - **API Key 鉴权** — D1 数据库持久化，SHA-256 哈希存储，支持启用/禁用/过期/配额控制
-- **请求额度控制** — 每 Key 独立 `request_limit`，超额返回 429；仅在 AI 调用成功后计数
-- **请求日志** — 记录每次请求的元数据（不存 prompt/reply 内容），支持按 Key/状态筛选
-- **管理后台** — 内置 WebUI + RESTful API，支持 Key CRUD、配额管理、仪表盘统计
+- **请求额度控制** — 支持按次数（count）和按 Token（tokens）两种限额模式，仅在 AI 调用成功后计数
+- **请求日志** — 记录每次请求的元数据（不存 prompt/reply 内容），支持按 Key/用户/状态/调用方式筛选
+- **管理后台** — 内置 WebUI + RESTful API，支持 Key CRUD、用户管理、会员管理、邮箱黑名单、管理员操作日志
 - **域名隔离** — 公开 API 与管理后台绑定不同子域名（spapi.chenkai.space / admin.chenkai.space）
 - **多层安全** — Cloudflare Access SSO、CSRF 保护、常量时间比较、参数化查询防注入
 
@@ -42,31 +46,40 @@ Cloudflare Workers 驱动的 AI 后端网关，为 StudyPulse iOS App 提供 Min
 ## 架构
 
 ```
-                         ┌──────────────────────┐
-                         │   StudyPulse iOS App  │
-                         └──────────┬───────────┘
-                                    │  HTTPS  Authorization: Bearer sp_xxx
+                         ┌──────────────────────────┐
+                         │   StudyPulse iOS App      │
+                         │   (Session / API Key)     │
+                         └──────────┬───────────────┘
+                                    │  HTTPS
                                     ▼
-┌──────────────────────────────────────────────────────────────┐
-│                    Cloudflare Worker                          │
-│                                                              │
-│  spapi.chenkai.space (公开 API)     admin.chenkai.space (管理) │
-│  ┌─────────────────────────────┐   ┌──────────────────────┐  │
-│  │ GET  /         健康检查      │   │ GET  /admin   WebUI   │  │
-│  │ POST /v1/chat  AI 对话      │   │ /api/admin/* 管理API  │  │
-│  └─────────┬───────────────────┘   └──────────┬───────────┘  │
-│            │                                  │               │
-└────────────┼──────────────────────────────────┼───────────────┘
-             │                                  │
-             ▼                                  ▼
-┌────────────────────────┐          ┌──────────────────────────┐
-│   Cloudflare D1         │          │  Cloudflare Access        │
-│   (StudyPulseDB)        │          │  (管理员 SSO 认证)         │
-│                         │          └──────────────────────────┘
-│  ┌───────────────────┐  │
-│  │ api_keys          │  │
-│  │ request_logs      │  │
-│  └───────────────────┘  │
+┌──────────────────────────────────────────────────────────────────┐
+│                       Cloudflare Worker                           │
+│                                                                  │
+│  spapi.chenkai.space (公开 API)        admin.chenkai.space (管理)  │
+│  ┌────────────────────────────────┐   ┌──────────────────────┐   │
+│  │ GET  /              健康检查    │   │ GET  /admin   WebUI   │   │
+│  │ POST /auth/email/*   邮箱登录   │   │ /api/admin/* 管理API  │   │
+│  │ GET  /user/profile   用户信息   │   │ /api/admin/users/*    │   │
+│  │ POST /auth/logout    退出登录   │   │ /api/admin/blacklist/*│   │
+│  │ POST /v1/chat        AI 对话    │   └──────────┬───────────┘   │
+│  └─────────┬──────────────────────┘              │               │
+│            │                                     │               │
+└────────────┼─────────────────────────────────────┼───────────────┘
+             │                                     │
+             ▼                                     ▼
+┌────────────────────────┐          ┌──────────────────────────────┐
+│   Cloudflare D1         │          │  Cloudflare Access            │
+│   (StudyPulseDB)        │          │  (管理员 SSO 认证)             │
+│                         │          └──────────────────────────────┘
+│  users                  │
+│  sessions               │          ┌──────────────────────────────┐
+│  api_keys               │          │  Resend Email API             │
+│  membership_plans       │          │  (验证码邮件发送)               │
+│  usage_records          │          └──────────────────────────────┘
+│  request_logs           │
+│  email_verification_codes│
+│  admin_logs             │
+│  blacklisted_emails     │
 └────────────────────────┘
              │
              │  Bearer ${MINIMAX_API_KEY}
@@ -83,17 +96,53 @@ Cloudflare Workers 驱动的 AI 后端网关，为 StudyPulse iOS App 提供 Min
 ```
 POST /v1/chat
     │
-    ├─ 1. 提取 Authorization: Bearer <rawKey>
-    ├─ 2. SHA-256(rawKey) → 查 D1 api_keys WHERE key_hash = ?
-    ├─ 3. 校验 enabled = 1
-    ├─ 4. 校验 request_count < request_limit（limit 为 NULL 时跳过）
-    ├─ 5. 解析 Body（支持纯文本 message / 多模态 content 数组）
-    ├─ 6. POST MiniMax /v1/chat/completions
-    │      ├─ 成功 → reply
-    │      └─ 失败 → 502（异步写失败日志）
-    ├─ 7. UPDATE api_keys SET request_count+1, last_used_at=NOW()
-    ├─ 8. INSERT INTO request_logs（异步，不阻塞响应）
-    └─ 9. 返回 { success: true, data: { reply } }
+    ├─ 1. 双鉴权（authenticateRequest）
+    │      ├─ Session Token（sp_sess_ 前缀）→ validateSession → userId
+    │      ├─ X-API-Key header             → authenticate → userId/apiKeyId
+    │      └─ Authorization: Bearer        → authenticate → userId/apiKeyId
+    ├─ 2. 校验 MINIMAX_API_KEY Secret
+    ├─ 3. 解析 Body（支持纯文本 message / 多模态 content 数组）
+    ├─ 4. 组装 messages
+    │
+    ├─ 5. 流式分支判断
+    │      │
+    │      ├─ stream: true →
+    │      │   ├─ 调用 minimaxChatStream() 获取上游 SSE Response
+    │      │   ├─ tee() 将流一分为二
+    │      │   ├─ 客户端流：直接作为 SSE Response body 返回
+    │      │   └─ 用量流：异步扫描 SSE chunk 提取 usage → 计次 → 写日志
+    │      │
+    │      └─ 非流式 →
+    │          ├─ 额度检查（checkUserQuota）
+    │          │   ├─ admin 角色跳过
+    │          │   ├─ 查会员计划获取 daily_request_limit / monthly_token_limit
+    │          │   ├─ 查当日请求数（usage_records，UTC+8）
+    │          │   └─ 查当月 Token 消耗
+    │          ├─ 模型可用性校验（用户计划是否包含所选模型）
+    │          ├─ 调用 minimaxChat()
+    │          │   ├─ 成功 → { reply, usage }
+    │          │   └─ 失败 → 502（异步写失败日志）
+    │          ├─ incrementApiKeyUsage（api_keys 自增）
+    │          ├─ recordUsage（usage_records 写入）
+    │          ├─ 异步写成功日志（writeRequestLog）
+    │          └─ 返回 { success: true, data: { reply } }
+```
+
+### 鉴权优先级
+
+```
+authenticateRequest() 短路求值：
+
+  1. Authorization: Bearer sp_sess_xxx  → Session 鉴权（用户身份）
+     └─ 失败 → 直接 401，不回退
+
+  2. X-API-Key: sp_beta_xxx            → API Key 鉴权（推荐方式）
+     └─ 成功 → userId (如果绑定用户) + apiKeyId
+
+  3. Authorization: Bearer sp_beta_xxx  → API Key 鉴权（兼容旧版）
+     └─ 成功 → userId (如果绑定用户) + apiKeyId
+
+  4. 无任何鉴权信息 → 401
 ```
 
 ---
@@ -102,50 +151,76 @@ POST /v1/chat
 
 ```
 studypulse-cloud-ai/
-├── src/                          # Worker 源码
-│   ├── index.js                  # 入口：域名路由 + 请求处理
-│   ├── auth.js                   # API Key 鉴权（SHA-256 哈希 + D1 查询）
+├── src/                              # Worker 源码
+│   ├── index.js                      # 入口：域名路由 + 请求生命周期编排
+│   ├── auth.js                       # API Key 鉴权（SHA-256 哈希 + D1 查询 + 额度校验）
+│   ├── auth/
+│   │   ├── email.js                  # 邮箱验证码（生成/发送/校验，Resend API）
+│   │   ├── session.js                # Session 管理（创建/校验/销毁，30 天过期）
+│   │   └── middleware.js             # 双鉴权中间件（Session + API Key 统一入口）
 │   ├── providers/
-│   │   └── minimax.js            # MiniMax-M3 AI Provider（OpenAI 兼容协议）
+│   │   └── minimax.js                # MiniMax-M3 AI Provider（非流式 + 流式 SSE）
 │   ├── database/
-│   │   └── api_keys.js           # 额度自增写操作（仅 AI 成功后调用）
+│   │   ├── api_keys.js               # api_keys 表写操作（创建 Key/额度自增）
+│   │   └── usage.js                  # usage_records 表写操作
+│   ├── users/
+│   │   └── users.js                  # 用户 CRUD（按 ID/邮箱查询、列表、角色/会员更新、统计）
+│   ├── membership/
+│   │   └── membership.js             # 会员与额度管理（计划查询、额度检查、用量记录）
 │   └── admin/
-│       ├── auth.js               # 管理员鉴权（Cloudflare Access / ADMIN_API_TOKEN）
-│       ├── database.js           # 管理后台 D1 操作（统计/CRUD/日志）
-│       ├── routes.js             # 管理 API 路由 + CSRF 保护 + 安全响应头
-│       └── ui.js                 # 管理后台 WebUI（原生 HTML/CSS/JS）
-├── migrations/                   # D1 数据库迁移
-│   ├── 0001_create_api_keys.sql  # api_keys 表 + 索引
-│   └── 0002_create_request_logs.sql  # request_logs 表 + 索引
-├── scripts/                      # 管理脚本（通过 wrangler d1 execute 操作 D1）
-│   ├── _common.js                # 共用工具：SHA-256、D1 执行、参数解析
-│   ├── create-api-key.js         # 创建 API Key（仅显示一次原始 Key）
-│   ├── list-api-keys.js          # 列出所有 Key
-│   ├── update-quota.js           # 修改请求额度
-│   ├── disable-api-key.js        # 禁用 Key
-│   └── delete-api-key.js         # 删除 Key 及关联日志（CASCADE）
-├── test/                         # 测试
-│   ├── setup.js                  # 测试环境初始化（环境变量、测试数据）
-│   ├── index.spec.js             # 公开 API 测试（健康检查/鉴权/对话）
-│   └── admin.spec.js             # 管理后台测试（鉴权/CRUD/CSRF）
+│       ├── auth.js                   # 管理员鉴权（Cloudflare Access / ADMIN_API_TOKEN）
+│       ├── database.js               # 管理后台 D1 操作（统计/Key/用户/黑名单/日志 CRUD）
+│       ├── routes.js                 # 管理 API 路由 + CSRF 保护 + 安全响应头
+│       └── ui.js                     # 管理后台 WebUI（原生 HTML/CSS/JS）
+├── migrations/                       # D1 数据库迁移（按编号顺序执行）
+│   ├── 0001_create_api_keys.sql      # api_keys 表
+│   ├── 0002_create_request_logs.sql  # request_logs 表
+│   ├── 0003_add_limit_type.sql       # limit_type 字段（占位）
+│   ├── 0004_create_users.sql         # users 表
+│   ├── 0005_create_sessions.sql      # sessions 表
+│   ├── 0006_create_verification_codes.sql  # email_verification_codes 表
+│   ├── 0007_create_membership_plans.sql    # membership_plans 表
+│   ├── 0008_alter_request_logs.sql   # request_logs 增加 user_id 列
+│   ├── 0009_create_usage_records.sql # usage_records 表
+│   ├── 0010_create_admin_logs.sql    # admin_logs 表
+│   ├── 0011_seed_membership_plans.sql # 种子会员计划数据
+│   ├── 0012_create_blacklisted_emails.sql # blacklisted_emails 表
+│   └── 0013_make_api_key_id_nullable.sql  # request_logs.api_key_id 改为可空
+├── scripts/                          # 管理脚本
+│   ├── _common.js                    # 共用工具
+│   ├── create-api-key.js             # 创建 API Key
+│   ├── list-api-keys.js              # 列出所有 Key
+│   ├── update-quota.js               # 修改请求额度
+│   ├── disable-api-key.js            # 禁用 Key
+│   └── delete-api-key.js             # 删除 Key
+├── test/                             # 测试
+│   ├── setup.js                      # 测试环境初始化
+│   ├── index.spec.js                 # 公开 API 测试
+│   └── admin.spec.js                 # 管理后台测试
 ├── docs/
-│   └── API.md                    # 公开 API 完整文档
-├── wrangler.jsonc                # Cloudflare Workers 配置
-├── vitest.config.js              # Vitest 测试配置
+│   └── API.md                        # 公开 API 完整文档
+├── wrangler.jsonc                    # Cloudflare Workers 配置
+├── vitest.config.js                  # Vitest 测试配置
 ├── package.json
-└── AGENTS.md                     # Cloudflare Workers 开发参考
+└── AGENTS.md                         # Cloudflare Workers 开发参考
 ```
 
 ### 模块职责
 
 | 模块 | 文件 | 职责 |
 |------|------|------|
-| **入口/路由** | `src/index.js` | 域名路由分发、请求生命周期编排、错误统一处理 |
-| **鉴权** | `src/auth.js` | 公开 API 的 API Key 鉴权（Hash→D1→enabled→quota） |
-| **AI Provider** | `src/providers/minimax.js` | MiniMax-M3 调用封装，thinking 关闭，错误处理 |
-| **额度管理** | `src/database/api_keys.js` | request_count 自增 + last_used_at 更新 |
+| **入口/路由** | `src/index.js` | 域名路由分发、请求生命周期编排、流式/非流式分支、错误统一处理 |
+| **API Key 鉴权** | `src/auth.js` | 公开 API 的 Bearer API Key 鉴权（Hash→D1→enabled→过期→额度） |
+| **双鉴权中间件** | `src/auth/middleware.js` | Session + API Key 统一鉴权入口，优先级短路求值 |
+| **邮箱验证码** | `src/auth/email.js` | 验证码生成/Resend 发送/校验，自动注册新用户 |
+| **Session 管理** | `src/auth/session.js` | 创建/校验/销毁 Session Token（SHA-256 哈希存储） |
+| **AI Provider** | `src/providers/minimax.js` | MiniMax-M3 非流式调用 + 流式 SSE 调用 |
+| **额度管理** | `src/database/api_keys.js` | API Key 创建（绑定 user_id）、request_count/token_count 自增 |
+| **用量记录** | `src/database/usage.js` | usage_records 表写入 |
+| **用户管理** | `src/users/users.js` | users 表查询/更新、用户统计、Session/Key 列表 |
+| **会员额度** | `src/membership/membership.js` | 会员计划查询、每日/每月额度检查、用量记录 |
 | **管理鉴权** | `src/admin/auth.js` | Cloudflare Access / ADMIN_API_TOKEN 双通道鉴权 |
-| **管理数据** | `src/admin/database.js` | 仪表盘统计、Key CRUD、配额重置、日志查询 |
+| **管理数据** | `src/admin/database.js` | 仪表盘统计、Key CRUD、用户管理、黑名单、管理员日志 |
 | **管理路由** | `src/admin/routes.js` | RESTful 路由分发、CSRF 保护、安全头注入 |
 | **管理 UI** | `src/admin/ui.js` | 内置 WebUI 页面渲染 |
 
@@ -157,6 +232,7 @@ studypulse-cloud-ai/
 
 - Node.js 18+
 - Cloudflare 账号（已开通 Workers & D1）
+- Resend 账号（用于邮箱验证码发送）
 
 ### 本地开发
 
@@ -171,6 +247,7 @@ npx wrangler d1 migrations apply studypulse-cloud-ai-db --local
 cat > .dev.vars << 'EOF'
 MINIMAX_API_KEY=sk-your-minimax-api-key
 ADMIN_API_TOKEN=your-admin-token
+RESEND_API_KEY=re_your_resend_api_key
 EOF
 
 # 4. 种子测试 API Key（本地）
@@ -193,11 +270,31 @@ npm run dev
 # 健康检查
 curl http://localhost:8787/
 
-# AI 对话
+# 邮箱验证码 — 发送
+curl -X POST http://localhost:8787/auth/email/send \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com"}'
+
+# 邮箱验证码 — 校验（返回 Session Token）
+curl -X POST http://localhost:8787/auth/email/verify \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","code":"123456"}'
+
+# 用户信息（Session Token）
+curl http://localhost:8787/user/profile \
+  -H "Authorization: Bearer sp_sess_xxx"
+
+# AI 对话（非流式）
 curl -X POST http://localhost:8787/v1/chat \
   -H "Authorization: Bearer sp_beta_test001" \
   -H "Content-Type: application/json" \
   -d '{"message":"你好"}'
+
+# AI 对话（流式 SSE）
+curl -X POST http://localhost:8787/v1/chat \
+  -H "Authorization: Bearer sp_beta_test001" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"你好","stream":true}'
 
 # 管理后台
 open http://localhost:8787/admin
@@ -215,6 +312,9 @@ npx wrangler secret put MINIMAX_API_KEY
 
 # 管理后台降级认证 Token（推荐配置）
 npx wrangler secret put ADMIN_API_TOKEN
+
+# Resend 邮件发送 Key（邮箱登录必需）
+npx wrangler secret put RESEND_API_KEY
 ```
 
 > Secrets 由 Cloudflare 加密存储，仅运行时通过 `env` 注入，绝不写入代码或配置文件。
@@ -253,7 +353,13 @@ node scripts/create-api-key.js "iOS Beta 001" --remote
 4. 配置 Access Policy，限定管理员访问
 5. Workers 端无需额外配置 — 自动读取 `Cf-Access-Jwt-Assertion` header
 
-### 6. 部署 Worker
+### 6. 配置 Resend
+
+1. 注册 [Resend](https://resend.com) 账号
+2. 添加并验证发件域名（如 `chenkai.space`）
+3. 创建 API Key，通过 `wrangler secret put RESEND_API_KEY` 注入
+
+### 7. 部署 Worker
 
 ```bash
 # 注意：根据项目规则，部署应由 CI/CD 或手动在远程执行
@@ -266,20 +372,33 @@ npm run deploy
 
 完整 API 文档见 [docs/API.md](docs/API.md)。
 
-### 端点
+### 端点总览
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
 | `GET` | `/` | 无 | 健康检查 |
-| `POST` | `/v1/chat` | Bearer API Key | AI 对话（文本/多模态） |
+| `POST` | `/auth/email/send` | 无 | 发送邮箱验证码（Resend） |
+| `POST` | `/auth/email/verify` | 无 | 校验验证码并返回 Session Token |
+| `POST` | `/auth/logout` | Bearer Session | 退出登录（销毁 Session） |
+| `GET` | `/user/profile` | Bearer Session / API Key | 获取当前用户信息和会员状态 |
+| `POST` | `/v1/chat` | Bearer Session / X-API-Key / Bearer API Key | AI 对话（文本/多模态/流式） |
 
-### 请求格式
+### AI 对话请求格式
 
-**纯文本：**
+**纯文本（非流式）：**
 
 ```json
 {
   "message": "你好，请介绍一下自己"
+}
+```
+
+**纯文本（流式 SSE）：**
+
+```json
+{
+  "message": "你好，请介绍一下自己",
+  "stream": true
 }
 ```
 
@@ -297,9 +416,19 @@ npm run deploy
 }
 ```
 
-> `content` 数组优先级高于 `message`。两者同时存在时以 `content` 为准。
+**指定模型（需在用户会员计划可用模型列表中）：**
 
-### 成功响应
+```json
+{
+  "message": "你好",
+  "model": "MiniMax-M3"
+}
+```
+
+> `content` 数组优先级高于 `message`。两者同时存在时以 `content` 为准。
+> `model` 可选，默认 `"MiniMax-M3"`。
+
+### 非流式成功响应
 
 ```json
 {
@@ -310,18 +439,43 @@ npm run deploy
 }
 ```
 
+### 流式响应（SSE）
+
+当 `stream: true` 时，响应为 `text/event-stream`，直接透传 MiniMax SSE 格式：
+
+```
+data: {"id":"...","choices":[{"delta":{"content":"你好"}}]}
+
+data: {"id":"...","choices":[{"delta":{"content":"！"}}]}
+
+data: {"id":"...","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":50,"total_tokens":60}}
+
+data: [DONE]
+```
+
+最后一个非 `[DONE]` chunk 包含 `usage` 字段，Worker 异步提取用于计次和日志。
+
 ### 错误码
 
 | HTTP | `error` 字段 | 触发条件 |
 |------|-------------|---------|
 | 400 | `Invalid JSON Body` | 请求体非合法 JSON |
-| 401 | `Missing API Key` | 未携带 Authorization Header |
+| 400 | `email is required` | 邮箱登录缺少 email 字段 |
+| 400 | `Invalid verification code` | 验证码错误或已过期 |
+| 401 | `Missing API Key or Session Token` | 未携带任何鉴权信息 |
+| 401 | `Invalid or expired session` | Session Token 无效或已过期 |
 | 403 | `Invalid API Key` | Key 不存在或格式错误 |
 | 403 | `API Key disabled` | Key 已被管理员禁用 |
+| 403 | `API Key expired` | Key 已过期 |
+| 403 | `Model "xxx" is not available on your plan` | 所选模型不在当前会员计划中 |
 | 404 | `Not Found` | 未定义的路径 |
-| 429 | `API quota exceeded` | 请求次数达到 `request_limit` |
+| 429 | `API quota exceeded` | Key 请求次数达到 `request_limit` |
+| 429 | `Daily request limit exceeded` | 用户当日请求次数达到会员上限 |
+| 429 | `Monthly token limit exceeded` | 用户当月 Token 消耗达到会员上限 |
+| 429 | `Verification code locked` | 验证码错误次数超过 5 次 |
 | 500 | `Server not configured` | 未配置 `MINIMAX_API_KEY` |
 | 502 | `AI request failed` | 上游 MiniMax 调用失败 |
+| 502 | `Email delivery failed` | Resend 邮件发送失败 |
 
 ### 上游模型配置
 
@@ -331,7 +485,7 @@ npm run deploy
 | Endpoint | `https://api.minimaxi.com/v1/chat/completions` | 国内版 |
 | Model | `MiniMax-M3` | 原生多模态，1M 上下文 |
 | Thinking | `disabled` | 关闭思考过程，直接返回最终回复 |
-| Streaming | 否 | 当前非流式（v0.6 计划支持） |
+| Streaming | 支持 | 通过 `stream: true` 开启 SSE 流式传输 |
 
 ---
 
@@ -341,6 +495,7 @@ npm run deploy
 
 | 域名 | 路径 | 说明 |
 |------|------|------|
+| `admin.chenkai.space` | `/admin` | 生产环境 |
 | `localhost:8787` | `/admin` | 本地开发（路径路由兼容） |
 
 ### 认证方式
@@ -350,21 +505,29 @@ npm run deploy
 1. **Cloudflare Access（推荐）** — 到达 Worker 时 `Cf-Access-Jwt-Assertion` header 存在即通过，无需额外配置
 2. **ADMIN_API_TOKEN（降级）** — 本地开发或未配置 Access 时使用 Bearer Token
 
-<img width="1582" height="1035" alt="截屏2026-07-25 14 06 44" src="https://github.com/user-attachments/assets/e4d96753-4038-4f21-adf6-30c6956aff66" />
-
 ### 管理 API
 
 所有管理 API 需管理员认证。状态变更接口（POST）额外需要 CSRF Token。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `GET` | `/api/admin/stats` | 仪表盘统计（Key 总数、请求总量、超配额数） |
+| `GET` | `/api/admin/stats` | 仪表盘统计（Key 数、用户数、请求总量、超配额数） |
 | `GET` | `/api/admin/keys` | 列出所有 API Key |
-| `POST` | `/api/admin/keys/create` | 创建 Key（返回仅一次的 rawKey） |
+| `POST` | `/api/admin/keys/create` | 创建 Key（需绑定 user_id，返回仅一次的 rawKey） |
 | `POST` | `/api/admin/keys/update` | 更新 Key（名称/状态/配额/备注/过期） |
 | `POST` | `/api/admin/keys/delete` | 删除 Key（CASCADE 删除关联日志） |
-| `POST` | `/api/admin/keys/reset-quota` | 重置请求计数为 0 |
-| `GET` | `/api/admin/logs` | 查询请求日志（可按 api_key_id / status 筛选） |
+| `POST` | `/api/admin/keys/reset-quota` | 重置请求计数和 Token 计数为 0 |
+| `GET` | `/api/admin/logs` | 查询请求日志（可按 api_key_id/user_id/call_method/status 筛选） |
+| `GET` | `/api/admin/users` | 列出所有用户（支持搜索/角色/会员筛选） |
+| `GET` | `/api/admin/users/:id` | 用户详情（含请求/Token/Key 统计） |
+| `GET` | `/api/admin/users/:id/stats` | 用户使用统计 |
+| `GET` | `/api/admin/users/:id/sessions` | 用户 Session 列表 |
+| `GET` | `/api/admin/users/:id/keys` | 用户 API Key 列表 |
+| `POST` | `/api/admin/users/create` | 创建用户（管理员创建，默认已验证） |
+| `POST` | `/api/admin/users/update` | 更新用户（角色/会员/到期时间） |
+| `GET` | `/api/admin/blacklist` | 列出黑名单邮箱 |
+| `POST` | `/api/admin/blacklist/add` | 添加邮箱到黑名单 |
+| `POST` | `/api/admin/blacklist/remove` | 从黑名单移除邮箱 |
 
 ### CSRF 保护
 
@@ -386,8 +549,10 @@ CREATE TABLE api_keys (
     name            TEXT NOT NULL,               -- 人类可读名称
     enabled         INTEGER NOT NULL DEFAULT 1,  -- 0=禁用, 1=启用
     request_count   INTEGER NOT NULL DEFAULT 0,  -- 累计请求次数
+    token_count     INTEGER NOT NULL DEFAULT 0,  -- 累计消耗 Token 数
     request_limit   INTEGER,                     -- 请求上限，NULL=不限量
-    user_id         TEXT,                         -- 预留用户标识
+    limit_type      TEXT NOT NULL DEFAULT 'count', -- 'count' = 按次数, 'tokens' = 按 Token
+    user_id         TEXT,                         -- 绑定用户 ID (FK users.id)
     notes           TEXT,                         -- 备注
     expires_at      TEXT,                         -- ISO 8601 过期时间，NULL=永不过期
     created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -395,30 +560,130 @@ CREATE TABLE api_keys (
 );
 ```
 
-<img width="1582" height="1035" alt="截屏2026-07-25 14 06 55" src="https://github.com/user-attachments/assets/3d10ba4d-07df-4870-889e-e7e34ba92ef1" />
+### users 表
+
+```sql
+CREATE TABLE users (
+    id                  TEXT PRIMARY KEY,              -- UUID
+    email               TEXT UNIQUE NOT NULL,
+    email_verified      INTEGER NOT NULL DEFAULT 0,    -- 0=未验证, 1=已验证
+    role                TEXT NOT NULL DEFAULT 'user',  -- 'admin' | 'user'
+    membership_type     TEXT NOT NULL DEFAULT 'free',  -- 'free' | 'plus' | 'pro'
+    membership_expires_at TEXT,                         -- NULL=未设置到期时间
+    github_id           TEXT UNIQUE,                   -- 预留，暂不实现
+    username            TEXT,
+    avatar_url          TEXT,
+    created_at          TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### sessions 表
+
+```sql
+CREATE TABLE sessions (
+    id          TEXT PRIMARY KEY,              -- UUID
+    user_id     TEXT NOT NULL,                 -- FK users.id
+    token_hash  TEXT NOT NULL UNIQUE,          -- SHA-256(sp_sess_xxx)
+    expires_at  TEXT NOT NULL,                 -- 30 天有效期
+    last_used_at TEXT,                          -- 最近使用时间
+    created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### membership_plans 表
+
+```sql
+CREATE TABLE membership_plans (
+    id                  TEXT PRIMARY KEY,      -- 'free' | 'plus' | 'pro'
+    name                TEXT NOT NULL,
+    daily_request_limit INTEGER,              -- NULL = 不限
+    monthly_token_limit INTEGER,              -- NULL = 不限
+    available_models    TEXT NOT NULL DEFAULT '["MiniMax-M3"]'  -- JSON array
+);
+```
+
+默认种子数据：
+
+| Plan | 日请求上限 | 月 Token 上限 | 可用模型 |
+|------|-----------|-------------|---------|
+| free | 100 | 1,000,000 | MiniMax-M3 |
+| plus | 1,000 | 10,000,000 | MiniMax-M3 |
+| pro | 无限制 | 无限制 | MiniMax-M3 |
+
+### usage_records 表
+
+```sql
+CREATE TABLE usage_records (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         TEXT NOT NULL,             -- FK users.id
+    api_key_id      INTEGER,                   -- FK api_keys.id（Session 调用时为 NULL）
+    model           TEXT,
+    input_tokens    INTEGER NOT NULL DEFAULT 0,
+    output_tokens   INTEGER NOT NULL DEFAULT 0,
+    total_tokens    INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
 
 ### request_logs 表
 
 ```sql
 CREATE TABLE request_logs (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    api_key_id        INTEGER NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+    api_key_id        INTEGER,                  -- FK api_keys.id（Session 调用时为 NULL）
+    user_id           TEXT,                      -- FK users.id
     request_time      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    model             TEXT,           -- MiniMax-M3
-    provider          TEXT,           -- minimax
-    status            INTEGER NOT NULL, -- 200=成功, 502=失败
-    latency_ms        INTEGER,        -- 请求延迟（毫秒）
-    prompt_tokens     INTEGER,        -- 输入 token 数（预留）
-    completion_tokens INTEGER,        -- 输出 token 数（预留）
-    total_tokens      INTEGER,        -- 总 token 数（预留）
-    ip                TEXT,           -- CF-Connecting-IP
-    user_agent        TEXT,           -- 客户端 User-Agent
-    error_message     TEXT            -- 错误信息，截断至 500 字符
+    model             TEXT,
+    provider          TEXT,
+    status            INTEGER NOT NULL,          -- 200=成功, 502=失败
+    latency_ms        INTEGER,
+    prompt_tokens     INTEGER,
+    completion_tokens INTEGER,
+    total_tokens      INTEGER,
+    ip                TEXT,                      -- CF-Connecting-IP
+    user_agent        TEXT,
+    error_message     TEXT                       -- 截断至 500 字符
 );
 ```
 
-<img width="1582" height="1035" alt="截屏2026-07-25 14 07 00" src="https://github.com/user-attachments/assets/e465739d-7817-421b-9e3c-47d647a2d1e2" />
+### email_verification_codes 表
 
+```sql
+CREATE TABLE email_verification_codes (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    email           TEXT NOT NULL,
+    code            TEXT NOT NULL,                 -- 6 位数字
+    used            INTEGER NOT NULL DEFAULT 0,   -- 0=未使用, 1=已使用
+    attempts        INTEGER NOT NULL DEFAULT 0,   -- 错误次数（5 次锁定）
+    delivery_status TEXT NOT NULL DEFAULT 'pending', -- 'pending'|'sent'|'failed'
+    expires_at      TEXT NOT NULL,                 -- 10 分钟有效期
+    created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### admin_logs 表
+
+```sql
+CREATE TABLE admin_logs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    admin_user_id   TEXT NOT NULL,
+    action          TEXT NOT NULL,               -- create_api_key, create_user, change_membership 等
+    target_user_id  TEXT,
+    details         TEXT,                         -- JSON 格式操作详情
+    created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### blacklisted_emails 表
+
+```sql
+CREATE TABLE blacklisted_emails (
+    email       TEXT PRIMARY KEY,
+    reason      TEXT,
+    created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
 
 > **隐私设计：** 日志表不存储 prompt 和 reply 内容。key_hash 不通过管理 API 返回。删除 Key 时 CASCADE 清理关联日志。
 
@@ -429,21 +694,29 @@ CREATE TABLE request_logs (
 ### Key 生命周期
 
 ```
-创建（仅一次显示 rawKey）
+创建（仅一次显示 rawKey，必须绑定 user_id）
   │  node scripts/create-api-key.js "Name" --remote
   │  或管理后台 UI → 创建 Key
   ▼
 启用（enabled = 1，默认）
-  │  客户端携带 Key 发起请求
+  │  客户端通过 X-API-Key header 或 Authorization: Bearer 携带 Key 发起请求
   ▼
-使用中（request_count 递增）
+使用中（request_count/token_count 递增）
   │  管理员可随时：
   │  - 禁用 (enabled = 0)
-  │  - 调整配额 (request_limit)
-  │  - 重置计数 (request_count = 0)
+  │  - 调整配额 (request_limit / limit_type)
+  │  - 重置计数 (request_count = 0, token_count = 0)
   ▼
 过期/禁用/删除
 ```
+
+### 额度计数规则
+
+- **API Key 额度**：仅在 MiniMax 调用成功后自增 `request_count` 和 `token_count`
+- **用户会员额度**：按 `usage_records` 表统计，分日请求次数和月 Token 消耗两个维度
+- 鉴权失败、上游 AI 失败、Worker 内部错误**一律不计次**
+- `request_limit` 为 `NULL` 时表示不限量，跳过额度校验
+- `limit_type` 可切换 `"count"`（按请求次数）或 `"tokens"`（按 Token 消耗量）
 
 ### 命令行管理
 
@@ -464,13 +737,6 @@ node scripts/disable-api-key.js <key_id> --remote
 node scripts/delete-api-key.js <key_id> --remote
 ```
 
-### 额度计数规则
-
-- `request_count` **仅在 MiniMax 调用成功（HTTP 200）后**自增
-- 鉴权失败、上游 AI 失败、Worker 内部错误**一律不计次**
-- 单条 `UPDATE ... SET request_count = request_count + 1, last_used_at = CURRENT_TIMESTAMP` 原子完成
-- `request_limit` 为 `NULL` 时表示不限量，跳过额度校验
-
 ---
 
 ## 安全模型
@@ -481,8 +747,11 @@ node scripts/delete-api-key.js <key_id> --remote
 |------|---------|---------|
 | 客户端 API Key 原文 | 不存储（仅创建时显示一次） | — |
 | 客户端 API Key 哈希 | D1 `key_hash`（SHA-256） | 管理 API 不返回此字段 |
+| Session Token 原文 | 不存储（仅登录时返回一次） | — |
+| Session Token 哈希 | D1 `token_hash`（SHA-256） | 管理 API 不返回此字段 |
 | MiniMax 上游 Key | Cloudflare Secret | 仅运行时 `env.MINIMAX_API_KEY` |
 | 管理员 Token | Cloudflare Secret | 仅运行时 `env.ADMIN_API_TOKEN` |
+| Resend API Key | Cloudflare Secret | 仅运行时 `env.RESEND_API_KEY` |
 | 用户 Prompt / AI Reply | 不存储 | — |
 
 ### 防御措施
@@ -492,6 +761,9 @@ node scripts/delete-api-key.js <key_id> --remote
 | SQL 注入 | 所有 D1 查询使用参数化 prepared statements |
 | 时序攻击 | Token 比较使用常量时间算法 |
 | CSRF | 状态变更 API 校验 SameSite=Strict Cookie + 自定义 Header |
+| Session 劫持 | Token SHA-256 哈希存储，30 天过期，退出登录即时销毁 |
+| 验证码爆破 | 5 次错误锁定，10 分钟过期，发送频率限制 1 分钟 |
+| 邮箱滥用 | blacklisted_emails 黑名单机制 |
 | XSS | 安全响应头（CSP、X-XSS-Protection、X-Content-Type-Options） |
 | Clickjacking | `X-Frame-Options: DENY` |
 | 信息泄露 | 错误响应统一格式，不暴露内部细节 |
@@ -500,13 +772,17 @@ node scripts/delete-api-key.js <key_id> --remote
 ### 密钥层级
 
 ```
+用户持有         sp_sess_xxx  ──SHA-256──►  D1 sessions.token_hash
+                         │
+                         └──►  D1 users.id  ──►  会员额度管理
+
 客户端持有      sp_beta_xxx  ──SHA-256──►  D1 api_keys.key_hash
-                                                   │
+                                                  │
 Worker 持有      MINIMAX_API_KEY  ──Bearer──►  MiniMax API
 (Cloudflare Secret)
 ```
 
-客户端永远不接触 MiniMax Key，Worker 永远不存储客户端 Key 原文。
+客户端永远不接触 MiniMax Key，Worker 永远不存储客户端 Key 或 Session Token 原文。
 
 ---
 
@@ -527,7 +803,7 @@ npx vitest run test/index.spec.js
 
 | 测试文件 | 覆盖内容 |
 |---------|---------|
-| `test/index.spec.js` | 健康检查（200）、无 Key（401）、错误 Key（403）、正常对话（200）、Key 禁用（403）、配额超限（429）、无效 JSON（400）、未配置 Key（500）、上游失败（502）、request_count 自增、request_logs 写入 |
+| `test/index.spec.js` | 健康检查、无 Key/错误 Key/禁用 Key（403）、过期 Key（403）、配额超限（429）、正常对话、流式对话、无效 JSON（400）、未配置 Key（500）、上游失败（502）、request_count 自增、request_logs 写入 |
 | `test/admin.spec.js` | 管理员鉴权（Access JWT / Token）、未授权（401）、Key 列表、创建 Key、更新 Key、删除 Key、重置配额、日志查询、CSRF 校验（403）|
 
 ### 测试环境
@@ -545,7 +821,8 @@ npx vitest run test/index.spec.js
 |----|------|------|
 | **Runtime** | Cloudflare Workers | 全球边缘计算，零冷启动 |
 | **Database** | Cloudflare D1 (SQLite) | 边缘 SQL 数据库，与 Workers 零延迟 |
-| **AI Provider** | MiniMax-M3 | OpenAI 兼容协议，原生多模态 |
+| **AI Provider** | MiniMax-M3 | OpenAI 兼容协议，原生多模态，1M 上下文 |
+| **Email** | Resend | 邮件 API，用于发送验证码 |
 | **Admin UI** | 原生 HTML/CSS/JS | 零框架，零构建步骤 |
 | **Auth** | Web Crypto API (SHA-256) | 无外部依赖的哈希计算 |
 | **CLI** | wrangler | Cloudflare 官方 CLI |
@@ -562,14 +839,14 @@ npx vitest run test/index.spec.js
 | `0.3-beta` | 2026-07 | 鉴权切换到 D1 持久化，SHA-256 哈希存储，请求日志表 |
 | `0.4-beta` | 2026-07 | 请求额度控制（request_limit/429），Key 启用/禁用，管理脚本 |
 | `0.5-beta` | 2026-07 | 管理后台 WebUI + API，域名隔离路由，CSRF 保护，Cloudflare Access |
+| `0.6-beta` | 2026-07 | SaaS 用户体系（邮箱验证码登录 + Session Token + 双鉴权中间件）、三级会员计划（日请求/月 Token 额度）、流式 SSE 响应（含 tee 分叉用量提取）、usage_records 用量追踪、用户管理（角色/会员 CRUD）、邮箱黑名单、管理员操作日志、limit_type 按次数/Token 限额切换、X-API-Key header 鉴权 |
 
 ---
 
 ## 后续规划
 
-- [ ] **流式响应 (SSE)** — 支持 `stream: true`，透传 MiniMax 流式输出
 - [ ] **多 Provider 路由** — `providers/` 新增 openai/kimi/glm，body 增加 `provider` 字段
-- [ ] **过期校验** — 鉴权时检查 `expires_at`，过期 Key 返回特定错误码
 - [ ] **时间窗口限流** — 基于 D1 的每分钟/每小时速率限制
-- [ ] **Token 用量统计** — 从 MiniMax 响应中提取 `usage` 写入 `request_logs`
+- [ ] **GitHub OAuth 登录** — users 表已预留 github_id，增加 OAuth 流程
+- [ ] **用量仪表盘图表** — 管理后台增加用量趋势可视化
 - [ ] **CI/CD** — GitHub Actions 自动化测试 + 部署
