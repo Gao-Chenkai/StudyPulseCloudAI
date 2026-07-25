@@ -235,6 +235,57 @@ async function handleLogout(request, env) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// GET /user/profile — 获取当前用户信息和会员状态
+// ────────────────────────────────────────────────────────────────────────────
+
+async function handleUserProfile(request, env) {
+	const auth = await authenticateRequest(request, env);
+	if (!auth.ok) {
+		return auth.response;
+	}
+	if (!auth.userId) {
+		return Response.json({ error: "API Key not bound to a user" }, { status: 403 });
+	}
+
+	const user = await getUserById(auth.userId, env);
+	if (!user) {
+		return Response.json({ error: "User not found" }, { status: 404 });
+	}
+
+	// 计算有效会员等级（考虑过期降级）
+	let effectivePlan = user.membership_type;
+	if (effectivePlan !== "free" && user.membership_expires_at) {
+		const now = new Date();
+		const expiresAt = new Date(user.membership_expires_at);
+		if (now >= expiresAt) {
+			effectivePlan = "free";
+		}
+	}
+
+	// 查计划详情
+	const plan = await getMembershipPlan(effectivePlan, env);
+
+	return Response.json({
+		success: true,
+		data: {
+			email: user.email,
+			role: user.role,
+			membership: {
+				type: user.membership_type,
+				expires_at: user.membership_expires_at,
+				effective_type: effectivePlan,
+			},
+			plan: plan ? {
+				name: plan.name,
+				daily_request_limit: plan.daily_request_limit,
+				monthly_token_limit: plan.monthly_token_limit,
+				available_models: JSON.parse(plan.available_models),
+			} : null,
+		},
+	});
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // POST /v1/chat
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -246,6 +297,7 @@ async function handleLogout(request, env) {
  * Body 支持两种形态（多模态向后兼容）：
  *   1. 纯文本：      { "message": "你好" }
  *   2. 多模态数组：  { "content": [...] }
+ *   model 可选，默认 "MiniMax-M3"；需在用户计划可用模型列表中。
  *   同时存在时 content 优先；两者都缺则视为空文本。
  *
  * 错误码：
@@ -304,11 +356,11 @@ async function handleChat(request, env, ctx) {
 
 	// 5. 流式分支
 	if (body.stream === true) {
-		return handleChatStream(request, env, ctx, { userId, apiKeyId }, messages);
+		return handleChatStream(request, env, ctx, { userId, apiKeyId }, messages, body.model);
 	}
 
 	// 6. 额度检查（统一按 user_id）
-	const model = "MiniMax-M3";
+	let model = body.model || "MiniMax-M3";
 	const provider = "minimax";
 
 	if (userId) {
@@ -318,6 +370,27 @@ async function handleChat(request, env, ctx) {
 				{ error: quota.reason },
 				{ status: 429 },
 			);
+		}
+		// 校验 model 是否在用户可用模型列表中
+		const plan = await getMembershipPlan(
+			// 获取用户有效计划（checkUserQuota 内部已做降级，但这里直接查用户记录做 model 校验）
+			(await env.StudyPulseDB.prepare(
+				`SELECT membership_type, membership_expires_at FROM users WHERE id = ?`
+			).bind(userId).first()).then(u => {
+				if (!u) return "free";
+				if (u.membership_type !== "free" && u.membership_expires_at && new Date() >= new Date(u.membership_expires_at)) return "free";
+				return u.membership_type;
+			}),
+			env
+		);
+		if (plan) {
+			const available = JSON.parse(plan.available_models);
+			if (!available.includes(model)) {
+				return Response.json(
+					{ error: `Model "${model}" is not available on your plan` },
+					{ status: 403 },
+				);
+			}
 		}
 	}
 
@@ -416,13 +489,14 @@ async function handleChat(request, env, ctx) {
  * @param {ExecutionContext} ctx
  * @param {object} apiKey - 已鉴权的 API Key D1 记录
  * @param {Array} messages - 已组装的消息数组
+ * @param {string} modelOverride - 客户端指定的模型（可选，默认 MiniMax-M3）
  * @returns {Promise<Response>} SSE 流式响应或错误 JSON
  */
-async function handleChatStream(request, env, ctx, { userId, apiKeyId }, messages) {
+async function handleChatStream(request, env, ctx, { userId, apiKeyId }, messages, modelOverride) {
 	const startTime = Date.now();
 	const clientIp = request.headers.get("CF-Connecting-IP") || "";
 	const clientUa = request.headers.get("User-Agent") || "";
-	const model = "MiniMax-M3";
+	const model = modelOverride || "MiniMax-M3";
 	const provider = "minimax";
 
 	// 1. 发起上游流式请求
