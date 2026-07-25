@@ -233,12 +233,12 @@ export async function resetQuota(env, id) {
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
- * 查询请求日志（最近 200 条，按时间倒序）。
- * 支持按 api_key_id 和 status 筛选。
+ * 查询请求日志（最近 300 条，按时间倒序）。
+ * 支持按 api_key_id、user_id 和 status 筛选。
  * 不返回 prompt/reply 内容 —— 日志表本身就不存这些字段。
  *
  * @param {{ StudyPulseDB: D1Database }} env
- * @param {{ api_key_id?: number, status?: number }} filters
+ * @param {{ api_key_id?: number, user_id?: string, status?: number }} filters
  * @returns {Promise<Array>}
  */
 export async function getRequestLogs(env, filters = {}) {
@@ -248,6 +248,10 @@ export async function getRequestLogs(env, filters = {}) {
 	if (filters.api_key_id) {
 		conditions.push("rl.api_key_id = ?");
 		bindings.push(filters.api_key_id);
+	}
+	if (filters.user_id) {
+		conditions.push("rl.user_id = ?");
+		bindings.push(filters.user_id);
 	}
 	if (filters.status !== undefined && filters.status !== null && filters.status !== "") {
 		conditions.push("rl.status = ?");
@@ -260,15 +264,17 @@ export async function getRequestLogs(env, filters = {}) {
 
 	const { results } = await env.StudyPulseDB.prepare(
 		`SELECT rl.id, rl.api_key_id, ak.name AS key_name,
+		        rl.user_id, u.email AS user_email,
 		        rl.request_time, rl.model, rl.provider,
 		        rl.status, rl.latency_ms,
 		        rl.prompt_tokens, rl.completion_tokens, rl.total_tokens,
 		        rl.user_agent, rl.error_message
 		   FROM request_logs rl
 		   LEFT JOIN api_keys ak ON ak.id = rl.api_key_id
+		   LEFT JOIN users u ON u.id = rl.user_id
 		   ${where}
 		  ORDER BY rl.request_time DESC
-		  LIMIT 200`,
+		  LIMIT 300`,
 	)
 		.bind(...bindings)
 		.all();

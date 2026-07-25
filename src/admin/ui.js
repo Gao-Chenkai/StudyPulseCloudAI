@@ -143,6 +143,7 @@ function getAdminHtml(csrfToken, hasCfAccess) {
   <section id="tab-logs" class="tab-content">
     <div class="toolbar">
       <label>Key ID: <input type="number" id="logFilterKeyId" placeholder="全部" class="input-sm"></label>
+      <label>用户ID: <input type="text" id="logFilterUserId" placeholder="全部" class="input-sm"></label>
       <label>状态: <select id="logFilterStatus" class="input-sm">
         <option value="">全部</option>
         <option value="200">200 成功</option>
@@ -992,9 +993,11 @@ async function loadLogs() {
   container.innerHTML = '<p class="empty-state">加载中...</p>';
   try {
     const keyId = document.getElementById("logFilterKeyId").value.trim();
+    const userId = document.getElementById("logFilterUserId").value.trim();
     const status = document.getElementById("logFilterStatus").value;
     const params = new URLSearchParams();
     if (keyId) params.set("api_key_id", keyId);
+    if (userId) params.set("user_id", userId);
     if (status) params.set("status", status);
     const { data } = await apiJson("GET", "/api/admin/logs?" + params.toString());
     if (data.length === 0) {
@@ -1013,6 +1016,7 @@ function renderLogsTable(logs) {
     return '<tr>' +
       '<td>' + l.id + '</td>' +
       '<td>' + l.api_key_id + ' (' + escapeHtml(l.key_name || '-') + ')</td>' +
+      '<td>' + escapeHtml(l.user_email || (l.user_id ? l.user_id.slice(0, 8) + '...' : '-')) + '</td>' +
       '<td>' + formatDate(l.request_time) + '</td>' +
       '<td>' + (l.model || '-') + '</td>' +
       '<td><span class="status-badge ' + statusClass + '">' + l.status + '</span></td>' +
@@ -1024,7 +1028,7 @@ function renderLogsTable(logs) {
   }).join("");
 
   return '<table><thead><tr>' +
-    '<th>ID</th><th>Key</th><th>时间</th><th>模型</th>' +
+    '<th>ID</th><th>Key</th><th>用户</th><th>时间</th><th>模型</th>' +
     '<th>状态</th><th>延迟</th><th>Tokens (P/C/T)</th>' +
     '<th>客户端</th><th>错误</th>' +
   '</tr></thead><tbody>' + rows + '</tbody></table>';
