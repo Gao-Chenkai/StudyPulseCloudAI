@@ -54,6 +54,81 @@ export async function getDashboardStats(env) {
 // createApiKey 已移至 src/database/api_keys.js（增加 user_id 参数）
 export { createApiKey } from "../database/api_keys.js";
 
+// ────────────────────────────────────────────────────────────────────────────
+// 邮箱黑名单
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 检查邮箱是否在黑名单中。
+ * @param {string} email
+ * @param {{ StudyPulseDB: D1Database }} env
+ * @returns {Promise<boolean>}
+ */
+export async function isEmailBlacklisted(email, env) {
+	const row = await env.StudyPulseDB.prepare(
+		"SELECT email FROM blacklisted_emails WHERE email = ?",
+	)
+		.bind(email.trim().toLowerCase())
+		.first();
+	return !!row;
+}
+
+/**
+ * 添加邮箱到黑名单。
+ * @param {string} email
+ * @param {string} [reason]
+ * @param {{ StudyPulseDB: D1Database }} env
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+export async function blacklistEmail(email, reason, env) {
+	const normalized = email.trim().toLowerCase();
+	if (!normalized || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+		return { success: false, error: "Invalid email format" };
+	}
+
+	try {
+		await env.StudyPulseDB.prepare(
+			"INSERT INTO blacklisted_emails (email, reason) VALUES (?, ?)",
+		)
+			.bind(normalized, reason || null)
+			.run();
+		return { success: true };
+	} catch (err) {
+		// UNIQUE constraint violation = 已在黑名单中
+		if (err?.message?.includes("UNIQUE")) {
+			return { success: false, error: "Email already blacklisted" };
+		}
+		throw err;
+	}
+}
+
+/**
+ * 从黑名单移除邮箱。
+ * @param {string} email
+ * @param {{ StudyPulseDB: D1Database }} env
+ * @returns {Promise<boolean>}
+ */
+export async function removeBlacklistedEmail(email, env) {
+	const { meta } = await env.StudyPulseDB.prepare(
+		"DELETE FROM blacklisted_emails WHERE email = ?",
+	)
+		.bind(email.trim().toLowerCase())
+		.run();
+	return meta.changes > 0;
+}
+
+/**
+ * 列出所有黑名单邮箱。
+ * @param {{ StudyPulseDB: D1Database }} env
+ * @returns {Promise<Array>}
+ */
+export async function listBlacklistedEmails(env) {
+	const { results } = await env.StudyPulseDB.prepare(
+		"SELECT email, reason, created_at FROM blacklisted_emails ORDER BY created_at DESC",
+	).all();
+	return results;
+}
+
 /**
  * 列出所有 API Key（不含 key_hash）。
  * @param {{ StudyPulseDB: D1Database }} env

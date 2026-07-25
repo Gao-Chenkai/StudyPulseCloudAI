@@ -29,6 +29,10 @@ import {
 	updateUser,
 	writeAdminLog,
 	getAdminLogs,
+	isEmailBlacklisted,
+	blacklistEmail,
+	removeBlacklistedEmail,
+	listBlacklistedEmails,
 } from "./database.js";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -206,6 +210,18 @@ export async function handleAdminApi(request, env, pathname) {
 		// POST /api/admin/users/create
 		case pathname === "/api/admin/users/create" && method === "POST":
 			return handleCreateUser(request, env);
+
+		// GET /api/admin/blacklist
+		case pathname === "/api/admin/blacklist" && method === "GET":
+			return handleListBlacklist(env);
+
+		// POST /api/admin/blacklist/add
+		case pathname === "/api/admin/blacklist/add" && method === "POST":
+			return handleAddBlacklist(request, env);
+
+		// POST /api/admin/blacklist/remove
+		case pathname === "/api/admin/blacklist/remove" && method === "POST":
+			return handleRemoveBlacklist(request, env);
 
 		default:
 				return error("Not Found", 404);
@@ -481,6 +497,71 @@ async function handleUserSessions(env, userId) {
 async function handleUserKeys(env, userId) {
 	const keys = await getUserApiKeys(env, userId);
 	return json({ success: true, data: keys });
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 邮箱黑名单路由处理
+// ────────────────────────────────────────────────────────────────────────────
+
+async function handleListBlacklist(env) {
+	const emails = await listBlacklistedEmails(env);
+	return json({ success: true, data: emails });
+}
+
+async function handleAddBlacklist(request, env) {
+	let body;
+	try {
+		body = await request.json();
+	} catch {
+		return error("Invalid JSON body", 400);
+	}
+
+	const { email, reason } = body;
+	if (!email || typeof email !== "string") {
+		return error("email is required", 400);
+	}
+
+	const result = await blacklistEmail(email.trim(), reason || null, env);
+	if (!result.success) {
+		return error(result.error, 400);
+	}
+
+	writeAdminLog(env, {
+		admin_user_id: "admin_system",
+		action: "blacklist_email",
+		target_user_id: null,
+		details: JSON.stringify({ email: email.trim().toLowerCase(), reason }),
+	}).catch(() => {});
+
+	return json({ success: true });
+}
+
+async function handleRemoveBlacklist(request, env) {
+	let body;
+	try {
+		body = await request.json();
+	} catch {
+		return error("Invalid JSON body", 400);
+	}
+
+	const { email } = body;
+	if (!email || typeof email !== "string") {
+		return error("email is required", 400);
+	}
+
+	const removed = await removeBlacklistedEmail(email.trim(), env);
+	if (!removed) {
+		return error("Email not found in blacklist", 404);
+	}
+
+	writeAdminLog(env, {
+		admin_user_id: "admin_system",
+		action: "unblacklist_email",
+		target_user_id: null,
+		details: JSON.stringify({ email: email.trim().toLowerCase() }),
+	}).catch(() => {});
+
+	return json({ success: true });
 }
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -83,6 +83,7 @@ function getAdminHtml(csrfToken, hasCfAccess) {
     <button class="tab active" data-tab="dashboard">仪表盘</button>
     <button class="tab" data-tab="keys">Key 管理</button>
     <button class="tab" data-tab="users">用户管理</button>
+    <button class="tab" data-tab="blacklist">黑名单</button>
     <button class="tab" data-tab="logs">请求日志</button>
   </nav>
 
@@ -124,6 +125,18 @@ function getAdminHtml(csrfToken, hasCfAccess) {
     </div>
     <div id="usersTableContainer" class="table-container">
       <p class="empty-state">点击查询加载用户</p>
+    </div>
+  </section>
+
+  <section id="tab-blacklist" class="tab-content">
+    <div class="toolbar">
+      <input type="email" id="blacklistEmail" class="input-sm" placeholder="输入邮箱地址..." style="width:280px">
+      <input type="text" id="blacklistReason" class="input-sm" placeholder="拉黑原因（可选）" style="width:200px">
+      <button class="btn btn-danger" onclick="addBlacklist()">拉黑</button>
+      <button class="btn btn-outline" onclick="loadBlacklist()">刷新</button>
+    </div>
+    <div id="blacklistTableContainer" class="table-container">
+      <p class="empty-state">点击刷新加载黑名单</p>
     </div>
   </section>
 
@@ -780,6 +793,7 @@ function switchTab(name) {
   if (name === "dashboard") loadDashboard();
   else if (name === "keys") loadKeys();
   else if (name === "users") loadUsers();
+  else if (name === "blacklist") loadBlacklist();
 }
 
 // ── Dashboard ──
@@ -1234,6 +1248,68 @@ async function confirmDeleteKey(id, name) {
       closeModal("modal-user");
     } catch (e) {
       showToast("删除失败: " + e.message, "error");
+    }
+  });
+}
+
+// ── Blacklist Management ──
+async function loadBlacklist() {
+  const container = document.getElementById("blacklistTableContainer");
+  container.innerHTML = '<p class="empty-state">加载中...</p>';
+  try {
+    const { data } = await apiJson("GET", "/api/admin/blacklist");
+    if (data.length === 0) {
+      container.innerHTML = '<p class="empty-state">黑名单为空</p>';
+      return;
+    }
+    container.innerHTML = renderBlacklistTable(data);
+  } catch (e) {
+    container.innerHTML = '<p class="empty-state error-text">加载失败: ' + escapeHtml(e.message) + '</p>';
+  }
+}
+
+function renderBlacklistTable(list) {
+  const rows = list.map(item => {
+    return '<tr>' +
+      '<td>' + escapeHtml(item.email) + '</td>' +
+      '<td>' + escapeHtml(item.reason || '-') + '</td>' +
+      '<td>' + formatDate(item.created_at) + '</td>' +
+      '<td class="actions-cell">' +
+        '<button class="btn btn-sm btn-danger" onclick="confirmRemoveBlacklist(\\'' + escapeHtml(item.email) + '\\')">移出黑名单</button>' +
+      '</td>' +
+    '</tr>';
+  }).join("");
+
+  return '<table><thead><tr>' +
+    '<th>邮箱</th><th>原因</th><th>添加时间</th><th>操作</th>' +
+  '</tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+async function addBlacklist() {
+  const email = document.getElementById("blacklistEmail").value.trim();
+  if (!email) { showToast("请输入邮箱地址", "error"); return; }
+  const reason = document.getElementById("blacklistReason").value.trim();
+
+  try {
+    await apiJson("POST", "/api/admin/blacklist/add", { email, reason: reason || undefined });
+    document.getElementById("blacklistEmail").value = "";
+    document.getElementById("blacklistReason").value = "";
+    loadBlacklist();
+    showToast("已拉黑: " + email, "success");
+  } catch (e) {
+    showToast("拉黑失败: " + e.message, "error");
+  }
+}
+
+function confirmRemoveBlacklist(email) {
+  showConfirm("移出黑名单", '确定要将 "' + email + '" 从黑名单中移除吗？', async () => {
+    try {
+      await apiJson("POST", "/api/admin/blacklist/remove", { email: email });
+      closeModal("modal-confirm");
+      loadBlacklist();
+      showToast("已移出黑名单", "success");
+    } catch (e) {
+      showToast("操作失败: " + e.message, "error");
     }
   });
 }

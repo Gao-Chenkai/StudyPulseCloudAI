@@ -7,6 +7,8 @@
  *   - sendEmail：调用 Resend REST API
  */
 
+import { isEmailBlacklisted } from "../admin/database.js";
+
 // ────────────────────────────────────────────────────────────────────────────
 // 发送验证码
 // ────────────────────────────────────────────────────────────────────────────
@@ -25,6 +27,11 @@ export async function sendVerificationCode(rawEmail, env) {
 	const email = rawEmail.trim().toLowerCase();
 	if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
 		return { success: false, error: "Invalid email format" };
+	}
+
+	// 1.5 检查邮箱是否在黑名单中
+	if (await isEmailBlacklisted(email, env)) {
+		return { success: false, error: "Email is blacklisted" };
 	}
 
 	// 2. 1 分钟内不可重复发送
