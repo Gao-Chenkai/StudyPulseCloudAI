@@ -234,11 +234,11 @@ export async function resetQuota(env, id) {
 
 /**
  * 查询请求日志（最近 300 条，按时间倒序）。
- * 支持按 api_key_id、user_id 和 status 筛选。
+ * 支持按 api_key_id、user_id、call_method 和 status 筛选。
  * 不返回 prompt/reply 内容 —— 日志表本身就不存这些字段。
  *
  * @param {{ StudyPulseDB: D1Database }} env
- * @param {{ api_key_id?: number, user_id?: string, status?: number }} filters
+ * @param {{ api_key_id?: number, user_id?: string, call_method?: string, status?: number }} filters
  * @returns {Promise<Array>}
  */
 export async function getRequestLogs(env, filters = {}) {
@@ -253,6 +253,11 @@ export async function getRequestLogs(env, filters = {}) {
 		conditions.push("rl.user_id = ?");
 		bindings.push(filters.user_id);
 	}
+	if (filters.call_method === "api_key") {
+		conditions.push("rl.api_key_id IS NOT NULL");
+	} else if (filters.call_method === "session") {
+		conditions.push("rl.api_key_id IS NULL AND rl.user_id IS NOT NULL");
+	}
 	if (filters.status !== undefined && filters.status !== null && filters.status !== "") {
 		conditions.push("rl.status = ?");
 		bindings.push(Number(filters.status));
@@ -265,6 +270,7 @@ export async function getRequestLogs(env, filters = {}) {
 	const { results } = await env.StudyPulseDB.prepare(
 		`SELECT rl.id, rl.api_key_id, ak.name AS key_name,
 		        rl.user_id, u.email AS user_email,
+		        CASE WHEN rl.api_key_id IS NOT NULL THEN 'api_key' ELSE 'session' END AS call_method,
 		        rl.request_time, rl.model, rl.provider,
 		        rl.status, rl.latency_ms,
 		        rl.prompt_tokens, rl.completion_tokens, rl.total_tokens,

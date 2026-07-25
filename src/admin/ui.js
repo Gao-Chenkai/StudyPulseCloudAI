@@ -144,6 +144,11 @@ function getAdminHtml(csrfToken, hasCfAccess) {
     <div class="toolbar">
       <label>Key ID: <input type="number" id="logFilterKeyId" placeholder="全部" class="input-sm"></label>
       <label>用户ID: <input type="text" id="logFilterUserId" placeholder="全部" class="input-sm"></label>
+      <label>方式: <select id="logFilterCallMethod" class="input-sm">
+        <option value="">全部</option>
+        <option value="api_key">API Key</option>
+        <option value="session">Session</option>
+      </select></label>
       <label>状态: <select id="logFilterStatus" class="input-sm">
         <option value="">全部</option>
         <option value="200">200 成功</option>
@@ -994,10 +999,12 @@ async function loadLogs() {
   try {
     const keyId = document.getElementById("logFilterKeyId").value.trim();
     const userId = document.getElementById("logFilterUserId").value.trim();
+    const callMethod = document.getElementById("logFilterCallMethod").value;
     const status = document.getElementById("logFilterStatus").value;
     const params = new URLSearchParams();
     if (keyId) params.set("api_key_id", keyId);
     if (userId) params.set("user_id", userId);
+    if (callMethod) params.set("call_method", callMethod);
     if (status) params.set("status", status);
     const { data } = await apiJson("GET", "/api/admin/logs?" + params.toString());
     if (data.length === 0) {
@@ -1013,8 +1020,12 @@ async function loadLogs() {
 function renderLogsTable(logs) {
   const rows = logs.map(l => {
     const statusClass = l.status >= 200 && l.status < 300 ? "status-enabled" : "status-disabled";
+    const callMethodLabel = l.call_method === "api_key"
+      ? '<span class="status-badge" style="background:#dbeafe;color:#1e40af">API Key</span>'
+      : '<span class="status-badge" style="background:#fef3c7;color:#92400e">Session</span>';
     return '<tr>' +
       '<td>' + l.id + '</td>' +
+      '<td>' + callMethodLabel + '</td>' +
       '<td>' + l.api_key_id + ' (' + escapeHtml(l.key_name || '-') + ')</td>' +
       '<td>' + escapeHtml(l.user_email || (l.user_id ? l.user_id.slice(0, 8) + '...' : '-')) + '</td>' +
       '<td>' + formatDate(l.request_time) + '</td>' +
@@ -1028,7 +1039,7 @@ function renderLogsTable(logs) {
   }).join("");
 
   return '<table><thead><tr>' +
-    '<th>ID</th><th>Key</th><th>用户</th><th>时间</th><th>模型</th>' +
+    '<th>ID</th><th>方式</th><th>Key</th><th>用户</th><th>时间</th><th>模型</th>' +
     '<th>状态</th><th>延迟</th><th>Tokens (P/C/T)</th>' +
     '<th>客户端</th><th>错误</th>' +
   '</tr></thead><tbody>' + rows + '</tbody></table>';

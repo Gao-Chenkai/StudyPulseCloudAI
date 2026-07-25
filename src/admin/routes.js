@@ -369,11 +369,13 @@ async function handleLogs(request, env) {
 	const url = new URL(request.url);
 	const api_key_id = url.searchParams.get("api_key_id");
 	const user_id = url.searchParams.get("user_id");
+	const call_method = url.searchParams.get("call_method");
 	const status = url.searchParams.get("status");
 
 	const logs = await getRequestLogs(env, {
 		api_key_id: api_key_id ? Number(api_key_id) : undefined,
 		user_id: user_id || undefined,
+		call_method: call_method || undefined,
 		status: status ? Number(status) : undefined,
 	});
 
