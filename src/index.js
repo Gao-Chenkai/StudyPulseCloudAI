@@ -1,22 +1,18 @@
 /**
  * StudyPulse Cloud AI - Worker 入口
  *
- * v0.5：主机名路由
+ * v0.6：SaaS 用户体系 + 双鉴权
  *   - admin.chenkai.space  → 管理后台（WebUI + API）
- *   - spapi.chenkai.space  → 公开 AI API（健康检查 + /v1/chat）
+ *   - spapi.chenkai.space  → 公开 AI API（健康检查 + auth + /v1/chat）
  *   - localhost（开发）     → 路径路由（兼容旧行为，全部可访问）
  *
- * 目录结构：
- *   src/
- *    ├── index.js              路由 + 请求处理
- *    ├── auth.js               API Key 鉴权（公开 API）
- *    ├── providers/minimax.js  AI 调用（MiniMax-M3，OpenAI 兼容协议）
- *    ├── database/api_keys.js  额度自增
- *    └── admin/
- *         ├── auth.js          管理员鉴权
- *         ├── database.js      管理后台 D1 操作
- *         ├── routes.js        管理后台 API 路由
- *         └── ui.js            管理后台 WebUI
+ * 新增模块：
+ *   src/auth/email.js         邮箱验证码
+ *   src/auth/session.js       Session 管理
+ *   src/auth/middleware.js    双鉴权中间件
+ *   src/users/users.js        用户 CRUD
+ *   src/membership/membership.js 会员与额度
+ *   src/database/usage.js     用量记录
  */
 
 import { authenticate } from "./auth.js";
@@ -25,6 +21,10 @@ import { incrementApiKeyUsage } from "./database/api_keys.js";
 import { handleAdminApi } from "./admin/routes.js";
 import { serveAdminPage } from "./admin/ui.js";
 import { writeRequestLog } from "./admin/database.js";
+import { authenticateRequest } from "./auth/middleware.js";
+import { sendVerificationCode, verifyCode } from "./auth/email.js";
+import { createSession, destroySession } from "./auth/session.js";
+import { checkUserQuota, recordUsage } from "./membership/membership.js";
 
 // 服务元信息
 const SERVICE_META = {
@@ -104,12 +104,27 @@ function handlePublicApi(request, env, ctx, pathname, method) {
 		return handleHealth();
 	}
 
+	// 邮箱验证码 — 发送
+	if (pathname === "/auth/email/send" && method === "POST") {
+		return handleSendCode(request, env);
+	}
+
+	// 邮箱验证码 — 校验
+	if (pathname === "/auth/email/verify" && method === "POST") {
+		return handleVerifyCode(request, env);
+	}
+
+	// 退出登录
+	if (pathname === "/auth/logout" && method === "POST") {
+		return handleLogout(request, env);
+	}
+
 	// AI 聊天接口
 	if (pathname === "/v1/chat" && method === "POST") {
 		return handleChat(request, env, ctx);
 	}
 
-	// 其余路径（包括 /admin）→ 404
+	// 其余路径 → 404
 	return Response.json({ error: "Not Found" }, { status: 404 });
 }
 
@@ -126,6 +141,86 @@ function handleHealth() {
 		...SERVICE_META,
 		status: "online",
 	});
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// POST /auth/email/send — 发送验证码
+// ────────────────────────────────────────────────────────────────────────────
+
+async function handleSendCode(request, env) {
+	let body;
+	try {
+		body = await request.json();
+	} catch {
+		return Response.json({ error: "Invalid JSON Body" }, { status: 400 });
+	}
+
+	const { email } = body || {};
+	if (!email || typeof email !== "string") {
+		return Response.json({ error: "email is required" }, { status: 400 });
+	}
+
+	const result = await sendVerificationCode(email, env);
+
+	if (!result.success) {
+		const status = result.error === "Please wait before requesting a new code"
+			? 429
+			: result.error === "Email delivery failed"
+				? 502
+				: 400;
+		return Response.json({ error: result.error }, { status });
+	}
+
+	return Response.json({ success: true });
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// POST /auth/email/verify — 校验验证码并登录
+// ────────────────────────────────────────────────────────────────────────────
+
+async function handleVerifyCode(request, env) {
+	let body;
+	try {
+		body = await request.json();
+	} catch {
+		return Response.json({ error: "Invalid JSON Body" }, { status: 400 });
+	}
+
+	const { email, code } = body || {};
+	if (!email || typeof email !== "string") {
+		return Response.json({ error: "email is required" }, { status: 400 });
+	}
+	if (!code || typeof code !== "string") {
+		return Response.json({ error: "code is required" }, { status: 400 });
+	}
+
+	const result = await verifyCode(email, code, env);
+
+	if (!result.success) {
+		const status = result.error === "Verification code locked due to too many attempts"
+			? 429
+			: 400;
+		return Response.json({ error: result.error }, { status });
+	}
+
+	// 创建 Session
+	const session = await createSession(result.userId, env);
+
+	return Response.json({
+		success: true,
+		data: {
+			token: session.token,
+		},
+	});
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// POST /auth/logout — 退出登录
+// ────────────────────────────────────────────────────────────────────────────
+
+async function handleLogout(request, env) {
+	await destroySession(request, env);
+	return Response.json({ success: true });
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -159,12 +254,12 @@ async function handleChat(request, env, ctx) {
 	const clientIp = request.headers.get("CF-Connecting-IP") || "";
 	const clientUa = request.headers.get("User-Agent") || "";
 
-	// 1. API Key 鉴权（含 enabled 与额度校验，详见 src/auth.js）
-	const auth = await authenticate(request, env);
+	// 1. 双鉴权：Session Token 优先，其次 X-API-Key，最后 Bearer API Key
+	const auth = await authenticateRequest(request, env);
 	if (!auth.ok) {
 		return auth.response;
 	}
-	const { apiKey } = auth;
+	const { userId, apiKeyId } = auth;
 
 	// 2. 校验 Worker Secret 是否已注入
 	if (!env || !env.MINIMAX_API_KEY) {
@@ -185,7 +280,7 @@ async function handleChat(request, env, ctx) {
 		);
 	}
 
-	// 4. 组装 user 消息：多模态 content 数组优先，其次纯文本 message
+	// 4. 组装 user 消息
 	let userContent;
 	if (Array.isArray(body?.content)) {
 		userContent = body.content;
@@ -196,28 +291,37 @@ async function handleChat(request, env, ctx) {
 
 	const messages = [{ role: "user", content: userContent }];
 
-	// 5. 流式分支：body.stream === true 时走 SSE 流式传输
+	// 5. 流式分支
 	if (body.stream === true) {
-		return handleChatStream(request, env, ctx, apiKey, messages);
+		return handleChatStream(request, env, ctx, { userId, apiKeyId }, messages);
 	}
 
-	// 6. 调用 AI Provider（非流式）
-	let result;
+	// 6. 额度检查（统一按 user_id）
 	const model = "MiniMax-M3";
 	const provider = "minimax";
 
+	if (userId) {
+		const quota = await checkUserQuota(userId, env);
+		if (!quota.allowed) {
+			return Response.json(
+				{ error: quota.reason },
+				{ status: 429 },
+			);
+		}
+	}
+
+	// 7. 调用 AI Provider（非流式）
+	let result;
 	try {
 		result = await minimaxChat(messages, env);
 	} catch (err) {
-		// 上游 AI 调用失败 -> 502
-		// 错误细节输出到 stderr，响应体只返回通用提示
 		console.error("AI provider error:", err?.message || err);
 
-		// 异步写失败日志（不阻塞响应）
 		const latency = Date.now() - startTime;
 		ctx.waitUntil(
 			writeRequestLog(env, {
-				api_key_id: apiKey.id,
+				api_key_id: apiKeyId ?? null,
+				user_id: userId ?? null,
 				model,
 				provider,
 				status: 502,
@@ -236,18 +340,29 @@ async function handleChat(request, env, ctx) {
 
 	const { reply, usage } = result;
 
-	// 7. 上游成功，自增额度计数并刷新 last_used_at
-	try {
-		await incrementApiKeyUsage(env, apiKey.id, usage?.total_tokens);
-	} catch (err) {
-		console.error("Failed to increment API key usage:", err?.message || err);
+	// 8. 成功后记录
+	if (apiKeyId) {
+		try {
+			await incrementApiKeyUsage(env, apiKeyId, usage?.total_tokens);
+		} catch (err) {
+			console.error("Failed to increment API key usage:", err?.message || err);
+		}
 	}
 
-	// 8. 异步写成功日志（不阻塞响应）
+	if (userId) {
+		try {
+			await recordUsage(userId, apiKeyId ?? null, model, usage, env);
+		} catch (err) {
+			console.error("Failed to record usage:", err?.message || err);
+		}
+	}
+
+	// 9. 异步写成功日志
 	const latency = Date.now() - startTime;
 	ctx.waitUntil(
 		writeRequestLog(env, {
-			api_key_id: apiKey.id,
+			api_key_id: apiKeyId ?? null,
+			user_id: userId ?? null,
 			model,
 			provider,
 			status: 200,
@@ -260,7 +375,7 @@ async function handleChat(request, env, ctx) {
 		}).catch((e) => console.error("Failed to write request log:", e?.message || e)),
 	);
 
-	// 9. 返回模型回复
+	// 10. 返回模型回复
 	return Response.json({
 		success: true,
 		data: {
@@ -292,7 +407,7 @@ async function handleChat(request, env, ctx) {
  * @param {Array} messages - 已组装的消息数组
  * @returns {Promise<Response>} SSE 流式响应或错误 JSON
  */
-async function handleChatStream(request, env, ctx, apiKey, messages) {
+async function handleChatStream(request, env, ctx, { userId, apiKeyId }, messages) {
 	const startTime = Date.now();
 	const clientIp = request.headers.get("CF-Connecting-IP") || "";
 	const clientUa = request.headers.get("User-Agent") || "";
@@ -304,12 +419,12 @@ async function handleChatStream(request, env, ctx, apiKey, messages) {
 	try {
 		upstreamResponse = await minimaxChatStream(messages, env);
 	} catch (err) {
-		// 上游连接失败 → 502（流尚未开始，可返回 JSON）
 		console.error("AI provider stream error:", err?.message || err);
 		const latency = Date.now() - startTime;
 		ctx.waitUntil(
 			writeRequestLog(env, {
-				api_key_id: apiKey.id,
+				api_key_id: apiKeyId ?? null,
+				user_id: userId ?? null,
 				model,
 				provider,
 				status: 502,
@@ -325,10 +440,10 @@ async function handleChatStream(request, env, ctx, apiKey, messages) {
 		);
 	}
 
-	// 2. tee() 将上游流一分为二，客户端分支零包装直接返回
+	// 2. tee() 将上游流一分为二
 	const [clientStream, usageStream] = upstreamResponse.body.tee();
 
-	// 3. 异步处理用量分支（独立 reader，不阻塞客户端分支）
+	// 3. 异步处理用量分支
 	ctx.waitUntil(
 		(async () => {
 			const reader = usageStream.getReader();
@@ -336,7 +451,6 @@ async function handleChatStream(request, env, ctx, apiKey, messages) {
 			let buffer = "";
 			let lastUsageEvent = null;
 
-			// 客户端断开时取消用量 reader
 			request.signal.addEventListener("abort", () => {
 				reader.cancel().catch(() => {});
 			});
@@ -369,7 +483,6 @@ async function handleChatStream(request, env, ctx, apiKey, messages) {
 					}
 				}
 
-				// Flush remaining
 				buffer += decoder.decode();
 				if (buffer.trim()) {
 					const dataLine = buffer
@@ -401,7 +514,8 @@ async function handleChatStream(request, env, ctx, apiKey, messages) {
 
 				const latency = Date.now() - startTime;
 				const logEntry = {
-					api_key_id: apiKey.id,
+					api_key_id: apiKeyId ?? null,
+					user_id: userId ?? null,
 					model,
 					provider,
 					status: 200,
@@ -416,19 +530,26 @@ async function handleChatStream(request, env, ctx, apiKey, messages) {
 				if (!usage) {
 					logEntry.error_message = "usage_missing";
 					console.warn(
-						`Stream completed but usage missing for api_key_id=${apiKey.id}`,
+						`Stream completed but usage missing for userId=${userId}, apiKeyId=${apiKeyId}`,
 					);
 				}
 
-				await Promise.all([
-					incrementApiKeyUsage(env, apiKey.id, usage?.total_tokens),
-					writeRequestLog(env, logEntry),
-				]);
+				const promises = [];
+				if (apiKeyId) {
+					promises.push(incrementApiKeyUsage(env, apiKeyId, usage?.total_tokens));
+				}
+				if (userId) {
+					promises.push(recordUsage(userId, apiKeyId ?? null, model, usage, env));
+				}
+				promises.push(writeRequestLog(env, logEntry));
+
+				await Promise.all(promises);
 			} catch (err) {
 				console.error("Usage stream processing error:", err?.message || err);
 				const latency = Date.now() - startTime;
 				await writeRequestLog(env, {
-					api_key_id: apiKey.id,
+					api_key_id: apiKeyId ?? null,
+					user_id: userId ?? null,
 					model,
 					provider,
 					status: 200,
@@ -441,7 +562,7 @@ async function handleChatStream(request, env, ctx, apiKey, messages) {
 		})(),
 	);
 
-	// 4. 直接返回上游 SSE 流 — 零包装、零修改
+	// 4. 直接返回上游 SSE 流
 	return new Response(clientStream, {
 		headers: {
 			"Content-Type": "text/event-stream",

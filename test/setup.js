@@ -1,5 +1,5 @@
 /**
- * Vitest 全局 setup：在所有测试前应用 migration 并种子一把 Beta Key。
+ * Vitest 全局 setup：在所有测试前应用所有 migration 并种子数据。
  *
  * cloudflare:test 提供的 env.StudyPulseDB 是 miniflare 内存 D1，
  * 每个 vitest 进程独立，不会污染本地 .wrangler/state 数据。
@@ -7,16 +7,42 @@
 import { env } from "cloudflare:test";
 import { beforeAll } from "vitest";
 import { sha256Hex } from "../src/auth.js";
+
+// 已有 migrations
 import migration1Sql from "../migrations/0001_create_api_keys.sql?raw";
 import migration2Sql from "../migrations/0002_create_request_logs.sql?raw";
-import migration3Sql from "../migrations/0002_add_limit_type.sql?raw";
+import migration3Sql from "../migrations/0003_add_limit_type.sql?raw";
+
+// 新增 migrations (SaaS 用户体系)
+import migration4Sql from "../migrations/0004_create_users.sql?raw";
+import migration5Sql from "../migrations/0005_create_sessions.sql?raw";
+import migration6Sql from "../migrations/0006_create_verification_codes.sql?raw";
+import migration7Sql from "../migrations/0007_create_membership_plans.sql?raw";
+import migration8Sql from "../migrations/0008_alter_request_logs.sql?raw";
+import migration9Sql from "../migrations/0009_create_usage_records.sql?raw";
+import migration10Sql from "../migrations/0010_create_admin_logs.sql?raw";
+import migration11Sql from "../migrations/0011_seed_membership_plans.sql?raw";
+
+const allMigrations = [
+	migration1Sql,  // 0001: api_keys
+	migration2Sql,  // 0002: request_logs
+	migration3Sql,  // 0003: add limit_type + token_count
+	migration4Sql,  // 0004: users
+	migration5Sql,  // 0005: sessions
+	migration6Sql,  // 0006: email_verification_codes
+	migration7Sql,  // 0007: membership_plans
+	migration8Sql,  // 0008: alter request_logs + user_id
+	migration9Sql,  // 0009: usage_records
+	migration10Sql, // 0010: admin_logs
+	migration11Sql, // 0011: seed membership_plans
+];
 
 // 与 v0.2 内存 Set 时期一致的 Beta Key，保证旧测试不破
 const BETA_TEST_KEY = "sp_beta_test001";
 
 beforeAll(async () => {
 	// 1. 应用所有 migration（建表 + 索引，幂等）
-	for (const sql of [migration1Sql, migration2Sql, migration3Sql]) {
+	for (const sql of allMigrations) {
 		const statements = sql
 			.split(";")
 			.map((chunk) =>
@@ -40,5 +66,14 @@ beforeAll(async () => {
 		 VALUES (?, ?, 1)`,
 	)
 		.bind(hash, "Beta Test Key 001")
+		.run();
+
+	// 3. 创建一个 seed 用户用于测试
+	const seedUserId = crypto.randomUUID();
+	await env.StudyPulseDB.prepare(
+		`INSERT OR IGNORE INTO users (id, email, email_verified, role, membership_type)
+		 VALUES (?, 'test@studypulse.app', 1, 'admin', 'pro')`,
+	)
+		.bind(seedUserId)
 		.run();
 });

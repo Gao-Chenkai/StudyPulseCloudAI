@@ -5,8 +5,6 @@
  * 管理后台绝对不返回 key_hash 字段，防止哈希泄露。
  */
 
-import { sha256Hex } from "../auth.js";
-
 // ────────────────────────────────────────────────────────────────────────────
 // 仪表盘统计
 // ────────────────────────────────────────────────────────────────────────────
@@ -14,12 +12,12 @@ import { sha256Hex } from "../auth.js";
 /**
  * 获取仪表盘统计数据。
  * @param {{ StudyPulseDB: D1Database }} env
- * @returns {Promise<{totalKeys: number, enabledKeys: number, totalRequests: number, exceededQuotaKeys: number}>}
+ * @returns {Promise<{totalKeys: number, enabledKeys: number, totalRequests: number, exceededQuotaKeys: number, totalUsers: number}>}
  */
 export async function getDashboardStats(env) {
 	const db = env.StudyPulseDB;
 
-	const [totalKeys, enabledKeys, totalRequests, exceededQuotaKeys] =
+	const [totalKeys, enabledKeys, totalRequests, exceededQuotaKeys, totalUsers] =
 		await Promise.all([
 			db
 				.prepare("SELECT COUNT(*) AS count FROM api_keys")
@@ -35,6 +33,9 @@ export async function getDashboardStats(env) {
 					"SELECT COUNT(*) AS count FROM api_keys WHERE request_limit IS NOT NULL AND ((limit_type = 'tokens' AND token_count >= request_limit) OR ((limit_type IS NULL OR limit_type = 'count') AND request_count >= request_limit))",
 				)
 				.first("count"),
+			db
+				.prepare("SELECT COUNT(*) AS count FROM users")
+				.first("count"),
 		]);
 
 	return {
@@ -42,12 +43,16 @@ export async function getDashboardStats(env) {
 		enabledKeys,
 		totalRequests,
 		exceededQuotaKeys,
+		totalUsers,
 	};
 }
 
 // ────────────────────────────────────────────────────────────────────────────
 // API Key 管理
 // ────────────────────────────────────────────────────────────────────────────
+
+// createApiKey 已移至 src/database/api_keys.js（增加 user_id 参数）
+export { createApiKey } from "../database/api_keys.js";
 
 /**
  * 列出所有 API Key（不含 key_hash）。
@@ -64,33 +69,6 @@ export async function listApiKeys(env) {
 	).all();
 
 	return results;
-}
-
-/**
- * 创建新的 API Key。
- * 生成 sp_beta_ 前缀的随机 key，仅存 SHA-256 哈希到 D1。
- * 返回的 rawKey 仅在创建时展示一次。
- *
- * @param {{ StudyPulseDB: D1Database }} env
- * @param {{ name: string, limit_type?: string, request_limit?: number|null, notes?: string, expires_at?: string }} params
- * @returns {Promise<{id: number, rawKey: string}>}
- */
-export async function createApiKey(env, params) {
-	const { name, limit_type, request_limit, notes, expires_at } = params;
-
-	// 生成 sp_beta_ + 16 位随机 hex
-	const rawKey = "sp_beta_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
-	const hash = await sha256Hex(rawKey);
-
-	const result = await env.StudyPulseDB.prepare(
-		`INSERT INTO api_keys (key_hash, name, enabled, request_count, request_limit, limit_type, notes, expires_at)
-		 VALUES (?, ?, 1, 0, ?, ?, ?, ?)
-		 RETURNING id`,
-	)
-		.bind(hash, name, request_limit ?? null, limit_type || "count", notes ?? null, expires_at ?? null)
-		.first("id");
-
-	return { id: result, rawKey };
 }
 
 /**
@@ -245,13 +223,14 @@ export async function getRequestLogs(env, filters = {}) {
 export async function writeRequestLog(env, entry) {
 	await env.StudyPulseDB.prepare(
 		`INSERT INTO request_logs
-		   (api_key_id, model, provider, status, latency_ms,
+		   (api_key_id, user_id, model, provider, status, latency_ms,
 		    prompt_tokens, completion_tokens, total_tokens,
 		    ip, user_agent, error_message)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	)
 		.bind(
-			entry.api_key_id,
+			entry.api_key_id ?? null,
+			entry.user_id ?? null,
 			entry.model ?? null,
 			entry.provider ?? null,
 			entry.status,
@@ -264,4 +243,231 @@ export async function writeRequestLog(env, entry) {
 			entry.error_message ?? null,
 		)
 		.run();
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 用户管理
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 列出所有用户，支持筛选和搜索。
+ */
+export async function listUsers(env, filters = {}) {
+	const conditions = [];
+	const bindings = [];
+
+	if (filters.search) {
+		conditions.push("email LIKE ?");
+		bindings.push(`%${filters.search}%`);
+	}
+	if (filters.role) {
+		conditions.push("role = ?");
+		bindings.push(filters.role);
+	}
+	if (filters.membership_type) {
+		conditions.push("membership_type = ?");
+		bindings.push(filters.membership_type);
+	}
+
+	const where = conditions.length > 0
+		? `WHERE ${conditions.join(" AND ")}`
+		: "";
+
+	const { results } = await env.StudyPulseDB.prepare(
+		`SELECT id, email, email_verified, role, membership_type,
+		        membership_expires_at, created_at
+		   FROM users
+		   ${where}
+		  ORDER BY created_at DESC
+		  LIMIT 200`,
+	)
+		.bind(...bindings)
+		.all();
+
+	return results;
+}
+
+/**
+ * 获取用户详情（含统计）。
+ */
+export async function getUserDetail(env, userId) {
+	const user = await env.StudyPulseDB.prepare(
+		`SELECT id, email, email_verified, role, membership_type,
+		        membership_expires_at, github_id, username, avatar_url,
+		        created_at, updated_at
+		   FROM users
+		  WHERE id = ?`,
+	)
+		.bind(userId)
+		.first();
+
+	if (!user) return null;
+
+	const [totalRequests, totalTokens, apiKeysCount] = await Promise.all([
+		env.StudyPulseDB.prepare(
+			"SELECT COUNT(*) AS count FROM usage_records WHERE user_id = ?",
+		).bind(userId).first("count"),
+		env.StudyPulseDB.prepare(
+			"SELECT COALESCE(SUM(total_tokens), 0) AS count FROM usage_records WHERE user_id = ?",
+		).bind(userId).first("count"),
+		env.StudyPulseDB.prepare(
+			"SELECT COUNT(*) AS count FROM api_keys WHERE user_id = ?",
+		).bind(userId).first("count"),
+	]);
+
+	return {
+		...user,
+		stats: {
+			totalRequests: totalRequests ?? 0,
+			totalTokens: totalTokens ?? 0,
+			apiKeysCount: apiKeysCount ?? 0,
+		},
+	};
+}
+
+/**
+ * 获取用户的 Session 列表。
+ */
+export async function getUserSessions(env, userId) {
+	const { results } = await env.StudyPulseDB.prepare(
+		`SELECT id, user_id, expires_at, last_used_at, created_at
+		   FROM sessions
+		  WHERE user_id = ?
+		  ORDER BY created_at DESC`,
+	)
+		.bind(userId)
+		.all();
+
+	return results;
+}
+
+/**
+ * 获取用户的 API Key 列表（不含 key_hash）。
+ */
+export async function getUserApiKeys(env, userId) {
+	const { results } = await env.StudyPulseDB.prepare(
+		`SELECT id, name, enabled, request_count, request_limit,
+		        limit_type, token_count,
+		        user_id, notes, expires_at, created_at, last_used_at
+		   FROM api_keys
+		  WHERE user_id = ?
+		  ORDER BY created_at DESC`,
+	)
+		.bind(userId)
+		.all();
+
+	return results;
+}
+
+/**
+ * 获取用户使用统计。
+ */
+export async function getUserUsageStats(env, userId) {
+	const todayUTC8 = new Date(
+		new Date().toLocaleString("en-US", { timeZone: "Asia/Shanghai" }),
+	);
+	todayUTC8.setHours(0, 0, 0, 0);
+	const todayStart = todayUTC8.toISOString();
+	const monthStart = new Date(todayUTC8.getFullYear(), todayUTC8.getMonth(), 1).toISOString();
+
+	const [dailyRequests, monthlyTokens] = await Promise.all([
+		env.StudyPulseDB.prepare(
+			"SELECT COUNT(*) AS count FROM usage_records WHERE user_id = ? AND created_at >= ?",
+		).bind(userId, todayStart).first("count"),
+		env.StudyPulseDB.prepare(
+			"SELECT COALESCE(SUM(total_tokens), 0) AS total FROM usage_records WHERE user_id = ? AND created_at >= ?",
+		).bind(userId, monthStart).first("total"),
+	]);
+
+	return {
+		dailyRequests: dailyRequests ?? 0,
+		monthlyTokens: monthlyTokens ?? 0,
+	};
+}
+
+/**
+ * 更新用户信息。
+ */
+export async function updateUser(env, userId, fields) {
+	const setClauses = ["updated_at = CURRENT_TIMESTAMP"];
+	const bindings = [];
+
+	if (fields.role !== undefined) {
+		setClauses.push("role = ?");
+		bindings.push(fields.role);
+	}
+	if (fields.membership_type !== undefined) {
+		setClauses.push("membership_type = ?");
+		bindings.push(fields.membership_type);
+	}
+	if (fields.membership_expires_at !== undefined) {
+		setClauses.push("membership_expires_at = ?");
+		bindings.push(fields.membership_expires_at);
+	}
+
+	if (bindings.length === 0) return false;
+
+	bindings.push(userId);
+
+	const { meta } = await env.StudyPulseDB.prepare(
+		`UPDATE users SET ${setClauses.join(", ")} WHERE id = ?`,
+	)
+		.bind(...bindings)
+		.run();
+
+	return meta.changes > 0;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 管理员操作日志
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 写入管理员操作日志。
+ */
+export async function writeAdminLog(env, entry) {
+	await env.StudyPulseDB.prepare(
+		`INSERT INTO admin_logs (admin_user_id, action, target_user_id, details)
+		 VALUES (?, ?, ?, ?)`,
+	)
+		.bind(
+			entry.admin_user_id,
+			entry.action,
+			entry.target_user_id ?? null,
+			entry.details ?? null,
+		)
+		.run();
+}
+
+/**
+ * 查询管理员操作日志。
+ */
+export async function getAdminLogs(env, filters = {}) {
+	const conditions = [];
+	const bindings = [];
+
+	if (filters.admin_user_id) {
+		conditions.push("admin_user_id = ?");
+		bindings.push(filters.admin_user_id);
+	}
+	if (filters.action) {
+		conditions.push("action = ?");
+		bindings.push(filters.action);
+	}
+
+	const where = conditions.length > 0
+		? `WHERE ${conditions.join(" AND ")}`
+		: "";
+
+	const { results } = await env.StudyPulseDB.prepare(
+		`SELECT id, admin_user_id, action, target_user_id, details, created_at
+		   FROM admin_logs
+		   ${where}
+		  ORDER BY created_at DESC
+		  LIMIT 200`,
+	)
+		.bind(...bindings)
+		.all();
+
+	return results;
 }

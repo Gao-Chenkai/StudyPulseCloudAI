@@ -20,6 +20,14 @@ import {
 	deleteApiKey,
 	resetQuota,
 	getRequestLogs,
+	listUsers,
+	getUserDetail,
+	getUserSessions,
+	getUserApiKeys,
+	getUserUsageStats,
+	updateUser,
+	writeAdminLog,
+	getAdminLogs,
 } from "./database.js";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -165,10 +173,36 @@ export async function handleAdminApi(request, env, pathname) {
 				return handleResetQuota(request, env);
 
 			// GET /api/admin/logs
-			case pathname === "/api/admin/logs" && method === "GET":
-				return handleLogs(request, env);
+		case pathname === "/api/admin/logs" && method === "GET":
+			return handleLogs(request, env);
 
-			default:
+		// GET /api/admin/users
+		case pathname === "/api/admin/users" && method === "GET":
+			return handleListUsers(request, env);
+
+		// GET /api/admin/users/:id
+		case pathname.startsWith("/api/admin/users/") && method === "GET": {
+			const userId = pathname.slice("/api/admin/users/".length);
+			if (pathname.endsWith("/stats")) {
+				const uid = userId.slice(0, -6); // remove "/stats"
+				return handleUserStats(env, uid);
+			}
+			if (pathname.endsWith("/sessions")) {
+				const uid = userId.slice(0, -9); // remove "/sessions"
+				return handleUserSessions(env, uid);
+			}
+			if (pathname.endsWith("/keys")) {
+				const uid = userId.slice(0, -5); // remove "/keys"
+				return handleUserKeys(env, uid);
+			}
+			return handleGetUser(env, userId);
+		}
+
+		// POST /api/admin/users/update
+		case pathname === "/api/admin/users/update" && method === "POST":
+			return handleUpdateUser(request, env);
+
+		default:
 				return error("Not Found", 404);
 		}
 	} catch (err) {
@@ -199,13 +233,17 @@ async function handleCreateKey(request, env) {
 		return error("Invalid JSON body", 400);
 	}
 
-	const { name } = body;
+	const { name, user_id } = body;
 	if (!name || typeof name !== "string" || name.trim().length === 0) {
 		return error("name is required", 400);
+	}
+	if (!user_id || typeof user_id !== "string") {
+		return error("user_id is required", 400);
 	}
 
 	const params = {
 		name: name.trim(),
+		user_id,
 		limit_type: body.limit_type || undefined,
 		request_limit: body.request_limit ? Number(body.request_limit) : null,
 		notes: body.notes || null,
@@ -213,6 +251,15 @@ async function handleCreateKey(request, env) {
 	};
 
 	const result = await createApiKey(env, params);
+
+	// 写管理员操作日志
+	writeAdminLog(env, {
+		admin_user_id: "admin_system",
+		action: "create_api_key",
+		target_user_id: user_id,
+		details: JSON.stringify({ key_id: result.id, name: params.name }),
+	}).catch(() => {});
+
 	return json({
 		success: true,
 		data: {
@@ -308,6 +355,81 @@ async function handleLogs(request, env) {
 	});
 
 	return json({ success: true, data: logs });
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 用户管理路由处理
+// ────────────────────────────────────────────────────────────────────────────
+
+async function handleListUsers(request, env) {
+	const url = new URL(request.url);
+	const search = url.searchParams.get("search") || "";
+	const role = url.searchParams.get("role") || "";
+	const membership_type = url.searchParams.get("membership") || "";
+
+	const users = await listUsers(env, { search, role, membership_type });
+	return json({ success: true, data: users });
+}
+
+async function handleGetUser(env, userId) {
+	const user = await getUserDetail(env, userId);
+	if (!user) return error("User not found", 404);
+	return json({ success: true, data: user });
+}
+
+async function handleUpdateUser(request, env) {
+	let body;
+	try {
+		body = await request.json();
+	} catch {
+		return error("Invalid JSON body", 400);
+	}
+
+	const { id } = body;
+	if (!id || typeof id !== "string") {
+		return error("id is required (string)", 400);
+	}
+
+	const fields = {};
+	if (body.role !== undefined) fields.role = body.role;
+	if (body.membership_type !== undefined) fields.membership_type = body.membership_type;
+	if (body.membership_expires_at !== undefined) {
+		fields.membership_expires_at = body.membership_expires_at;
+	}
+
+	if (Object.keys(fields).length === 0) {
+		return error("no fields to update", 400);
+	}
+
+	const updated = await updateUser(env, id, fields);
+	if (!updated) return error("User not found", 404);
+
+	// 写管理员操作日志
+	writeAdminLog(env, {
+		admin_user_id: "admin_system",
+		action: fields.role !== undefined ? "change_role"
+			: fields.membership_type !== undefined ? "change_membership"
+			: "update_user",
+		target_user_id: id,
+		details: JSON.stringify(fields),
+	}).catch(() => {});
+
+	return json({ success: true });
+}
+
+async function handleUserStats(env, userId) {
+	const stats = await getUserUsageStats(env, userId);
+	return json({ success: true, data: stats });
+}
+
+async function handleUserSessions(env, userId) {
+	const sessions = await getUserSessions(env, userId);
+	return json({ success: true, data: sessions });
+}
+
+async function handleUserKeys(env, userId) {
+	const keys = await getUserApiKeys(env, userId);
+	return json({ success: true, data: keys });
 }
 
 // ────────────────────────────────────────────────────────────────────────────

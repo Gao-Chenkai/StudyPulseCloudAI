@@ -22,7 +22,7 @@ describe("StudyPulse Cloud AI v0.2-beta", () => {
 				method: "POST",
 			});
 			expect(response.status).toBe(401);
-			expect(await response.json()).toEqual({ error: "Missing API Key" });
+			expect(await response.json()).toEqual({ error: "Missing API Key or Session Token" });
 		});
 
 		it("returns 403 when API Key is invalid", async () => {
