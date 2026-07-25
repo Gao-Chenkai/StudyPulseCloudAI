@@ -227,7 +227,7 @@ async function sendEmail(email, code, env) {
 				"Content-Type": "application/json",
 			},
 			body: JSON.stringify({
-				from: "StudyPulse <noreply@chenkai.space>",
+				from: "StudyPulse <onboarding@resend.dev>",
 				to: email,
 				subject: "StudyPulse Verification Code",
 				html: `<p>Your verification code is: <strong>${code}</strong></p><p>This code expires in 10 minutes.</p>`,
