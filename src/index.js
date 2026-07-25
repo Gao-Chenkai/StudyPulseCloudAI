@@ -372,17 +372,17 @@ async function handleChat(request, env, ctx) {
 			);
 		}
 		// 校验 model 是否在用户可用模型列表中
-		const plan = await getMembershipPlan(
-			// 获取用户有效计划（checkUserQuota 内部已做降级，但这里直接查用户记录做 model 校验）
-			(await env.StudyPulseDB.prepare(
-				`SELECT membership_type, membership_expires_at FROM users WHERE id = ?`
-			).bind(userId).first()).then(u => {
-				if (!u) return "free";
-				if (u.membership_type !== "free" && u.membership_expires_at && new Date() >= new Date(u.membership_expires_at)) return "free";
-				return u.membership_type;
-			}),
-			env
-		);
+		const userRecord = await env.StudyPulseDB.prepare(
+			`SELECT membership_type, membership_expires_at FROM users WHERE id = ?`
+		).bind(userId).first();
+		let effectiveMembership = "free";
+		if (userRecord) {
+			effectiveMembership = userRecord.membership_type;
+			if (effectiveMembership !== "free" && userRecord.membership_expires_at && new Date() >= new Date(userRecord.membership_expires_at)) {
+				effectiveMembership = "free";
+			}
+		}
+		const plan = await getMembershipPlan(effectiveMembership, env);
 		if (plan) {
 			const available = JSON.parse(plan.available_models);
 			if (!available.includes(model)) {
