@@ -47,6 +47,8 @@ export default {
 		const method = request.method.toUpperCase();
 		const hostname = url.hostname;
 
+		console.log(`[${method}] ${hostname}${pathname}`);
+
 		// ── 管理后台子域名：仅 admin.chenkai.space ──
 		if (hostname === ADMIN_HOSTNAME) {
 			return handleAdmin(request, env, ctx, pathname, method);
