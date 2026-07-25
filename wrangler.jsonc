@@ -13,6 +13,24 @@
 	"upload_source_maps": true,
 	"compatibility_flags": [
 		"nodejs_compat"
+	],
+	"d1_databases": [
+		{
+			"binding": "StudyPulseDB",
+			"database_name": "studypulse-cloud-ai-db",
+			"database_id": "df8b3261-ee9f-401d-9f07-cc3cbfa970e1"
+		}
+	],
+	"workers_dev": true,
+	"routes": [
+		{
+			"pattern": "spapi.chenkai.space",
+			"custom_domain": true
+		},
+		{
+			"pattern": "admin.chenkai.space",
+			"custom_domain": true
+		}
 	]
 	/**
 	 * Smart Placement
