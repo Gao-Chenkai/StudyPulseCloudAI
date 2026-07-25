@@ -30,7 +30,7 @@ import { getUserById } from "./users/users.js";
 // 服务元信息
 const SERVICE_META = {
 	service: "StudyPulse Cloud AI",
-	version: "0.5-beta-github",
+	version: "0.5-beta-github-debug",
 };
 
 // 生产环境自定义域名
