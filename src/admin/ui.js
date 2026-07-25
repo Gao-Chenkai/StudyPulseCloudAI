@@ -82,6 +82,7 @@ function getAdminHtml(csrfToken, hasCfAccess) {
   <nav class="tabs" style="display:none" id="mainNav">
     <button class="tab active" data-tab="dashboard">仪表盘</button>
     <button class="tab" data-tab="keys">Key 管理</button>
+    <button class="tab" data-tab="users">用户管理</button>
     <button class="tab" data-tab="logs">请求日志</button>
   </nav>
 
@@ -90,7 +91,7 @@ function getAdminHtml(csrfToken, hasCfAccess) {
       <div class="stat-card"><div class="stat-label">总 Key 数</div><div class="stat-value skeleton">-</div></div>
       <div class="stat-card"><div class="stat-label">启用 Key 数</div><div class="stat-value skeleton">-</div></div>
       <div class="stat-card"><div class="stat-label">总请求数</div><div class="stat-value skeleton">-</div></div>
-      <div class="stat-card"><div class="stat-label">超额 Key 数</div><div class="stat-value skeleton">-</div></div>
+      <div class="stat-card"><div class="stat-label">用户数</div><div class="stat-value skeleton">-</div></div>
     </div>
   </section>
 
@@ -101,6 +102,27 @@ function getAdminHtml(csrfToken, hasCfAccess) {
     </div>
     <div id="keysTableContainer" class="table-container">
       <p class="empty-state">加载中...</p>
+    </div>
+  </section>
+
+  <section id="tab-users" class="tab-content">
+    <div class="toolbar">
+      <input type="text" id="userSearch" class="input-sm" placeholder="搜索邮箱..." style="width:200px">
+      <select id="userRoleFilter" class="input-sm">
+        <option value="">全部角色</option>
+        <option value="user">用户</option>
+        <option value="admin">管理员</option>
+      </select>
+      <select id="userMemberFilter" class="input-sm">
+        <option value="">全部会员</option>
+        <option value="free">Free</option>
+        <option value="plus">Plus</option>
+        <option value="pro">Pro</option>
+      </select>
+      <button class="btn btn-outline" onclick="loadUsers()">查询</button>
+    </div>
+    <div id="usersTableContainer" class="table-container">
+      <p class="empty-state">点击查询加载用户</p>
     </div>
   </section>
 
@@ -128,6 +150,8 @@ function getAdminHtml(csrfToken, hasCfAccess) {
     <form id="formCreate" onsubmit="handleCreate(event)">
       <label>名称 *</label>
       <input type="text" name="name" class="input" required placeholder="例如：iOS Beta 内测 2">
+      <label>用户 ID *</label>
+      <input type="text" name="user_id" class="input" required placeholder="从用户管理页面复制用户 ID">
       <label>限制方式</label>
       <select name="limit_type" class="input">
         <option value="count">按请求次数</option>
@@ -189,6 +213,43 @@ function getAdminHtml(csrfToken, hasCfAccess) {
       <button id="confirmOk" class="btn btn-danger">确认</button>
       <button class="btn btn-outline" onclick="closeModal('modal-confirm')">取消</button>
     </div>
+  </div>
+</div>
+
+<!-- 用户详情模态框 -->
+<div id="modal-user" class="modal-overlay" style="display:none">
+  <div class="modal modal-lg">
+    <h3>用户详情</h3>
+    <div id="userDetailContent"></div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn btn-outline" onclick="closeModal('modal-user')">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 用户 Key 创建模态框 -->
+<div id="modal-user-key" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <h3>为用户创建 API Key</h3>
+    <form id="formUserKey" onsubmit="handleUserKeyCreate(event)">
+      <input type="hidden" name="user_id">
+      <label>名称 *</label>
+      <input type="text" name="name" class="input" required>
+      <label>限制方式</label>
+      <select name="limit_type" class="input">
+        <option value="count">按请求次数</option>
+        <option value="tokens">按 Token 用量</option>
+      </select>
+      <label>上限值</label>
+      <input type="number" name="request_limit" class="input" placeholder="留空=不限量" min="0">
+      <label>备注</label>
+      <input type="text" name="notes" class="input">
+      <div class="modal-actions">
+        <button type="submit" class="btn btn-primary">创建</button>
+        <button type="button" class="btn btn-outline" onclick="closeModal('modal-user-key')">取消</button>
+      </div>
+    </form>
+    <div id="userKeyResult" style="display:none"></div>
   </div>
 </div>
 
@@ -425,6 +486,7 @@ tr:hover td { background: #f8fafc; }
 }
 
 .modal-sm { max-width: 400px; }
+.modal-lg { width: 680px; }
 
 .modal h3 { margin-bottom: 16px; font-size: 16px; }
 
@@ -688,6 +750,7 @@ function switchTab(name) {
   document.querySelectorAll(".tab-content").forEach(c => c.classList.toggle("active", c.id === "tab-" + name));
   if (name === "dashboard") loadDashboard();
   else if (name === "keys") loadKeys();
+  else if (name === "users") loadUsers();
 }
 
 // ── Dashboard ──
@@ -698,7 +761,7 @@ async function loadDashboard() {
     cards[0].textContent = data.totalKeys;
     cards[1].textContent = data.enabledKeys;
     cards[2].textContent = data.totalRequests;
-    cards[3].textContent = data.exceededQuotaKeys;
+    cards[3].textContent = data.totalUsers ?? "-";
     cards.forEach(c => c.classList.remove("skeleton"));
   } catch (e) {
     showToast("加载仪表盘失败: " + e.message, "error");
@@ -775,7 +838,9 @@ function showCreateModal() {
 async function handleCreate(e) {
   e.preventDefault();
   const form = e.target;
-  const body = { name: form.name.value.trim() };
+  const userId = form.user_id.value.trim();
+  if (!userId) { showToast("请输入用户 ID", "error"); return; }
+  const body = { name: form.name.value.trim(), user_id: userId };
   body.limit_type = form.limit_type.value;
   const limit = form.request_limit.value.trim();
   if (limit) body.request_limit = parseInt(limit);
@@ -920,6 +985,192 @@ function renderLogsTable(logs) {
     '<th>状态</th><th>延迟</th><th>Tokens (P/C/T)</th>' +
     '<th>客户端</th><th>错误</th>' +
   '</tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+// ── User Management ──
+async function loadUsers() {
+  const container = document.getElementById("usersTableContainer");
+  container.innerHTML = '<p class="empty-state">加载中...</p>';
+  try {
+    const search = document.getElementById("userSearch").value.trim();
+    const role = document.getElementById("userRoleFilter").value;
+    const membership = document.getElementById("userMemberFilter").value;
+    const params = new URLSearchParams();
+    if (search) params.set("search", search);
+    if (role) params.set("role", role);
+    if (membership) params.set("membership", membership);
+    const { data } = await apiJson("GET", "/api/admin/users?" + params.toString());
+    if (data.length === 0) {
+      container.innerHTML = '<p class="empty-state">暂无用户</p>';
+      return;
+    }
+    window._userData = {};
+    data.forEach(u => { window._userData[u.id] = u; });
+    container.innerHTML = renderUsersTable(data);
+  } catch (e) {
+    container.innerHTML = '<p class="empty-state error-text">加载失败: ' + escapeHtml(e.message) + '</p>';
+  }
+}
+
+function renderUsersTable(users) {
+  const rows = users.map(u => {
+    const roleBadge = u.role === "admin"
+      ? '<span class="status-badge" style="background:#fef3c7;color:#92400e">管理员</span>'
+      : '<span class="status-badge" style="background:#e0e7ff;color:#3730a3">用户</span>';
+    const verified = u.email_verified === 1
+      ? '<span class="status-badge status-enabled">已验证</span>'
+      : '<span class="status-badge status-disabled">未验证</span>';
+    const memberLabels = { free: "Free", plus: "Plus", pro: "Pro" };
+    const memberBadge = u.membership_type === "pro"
+      ? '<span class="status-badge" style="background:#d1fae5;color:#065f46">Pro</span>'
+      : u.membership_type === "plus"
+        ? '<span class="status-badge" style="background:#dbeafe;color:#1e40af">Plus</span>'
+        : '<span class="status-badge" style="background:#f1f5f9;color:#64748b">Free</span>';
+
+    return '<tr>' +
+      '<td>' + escapeHtml(u.id.slice(0,8)) + '...</td>' +
+      '<td>' + escapeHtml(u.email) + '</td>' +
+      '<td>' + verified + '</td>' +
+      '<td>' + roleBadge + '</td>' +
+      '<td>' + memberBadge + '</td>' +
+      '<td>' + (u.membership_expires_at ? formatDate(u.membership_expires_at) : "-") + '</td>' +
+      '<td>' + formatDate(u.created_at) + '</td>' +
+      '<td class="actions-cell">' +
+        '<button class="btn btn-sm btn-outline" onclick="showUserDetail(\\'' + u.id + '\\')">详情</button>' +
+      '</td>' +
+    '</tr>';
+  }).join("");
+
+  return '<table><thead><tr>' +
+    '<th>ID</th><th>邮箱</th><th>验证</th><th>角色</th><th>会员</th>' +
+    '<th>到期时间</th><th>注册时间</th><th>操作</th>' +
+  '</tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+async function showUserDetail(userId) {
+  document.getElementById("userDetailContent").innerHTML = '<p class="empty-state">加载中...</p>';
+  document.getElementById("modal-user").style.display = "flex";
+  try {
+    const { data: user } = await apiJson("GET", "/api/admin/users/" + userId);
+    const { data: keys } = await apiJson("GET", "/api/admin/users/" + userId + "/keys");
+    const { data: stats } = await apiJson("GET", "/api/admin/users/" + userId + "/stats");
+
+    const roleBadge = user.role === "admin" ? "管理员" : "用户";
+    const memberLabels = { free: "Free", plus: "Plus", pro: "Pro" };
+
+    let keysHtml = '<p class="text-muted" style="margin-top:12px">API Keys (' + (keys ? keys.length : 0) + '个)</p>';
+    if (keys && keys.length > 0) {
+      keysHtml += '<div class="table-container"><table><thead><tr><th>ID</th><th>名称</th><th>状态</th><th>用量</th><th>操作</th></tr></thead><tbody>';
+      keys.forEach(k => {
+        const enabled = k.enabled === 1 ? '<span class="status-badge status-enabled">启用</span>' : '<span class="status-badge status-disabled">停用</span>';
+        keysHtml += '<tr><td>' + k.id + '</td><td>' + escapeHtml(k.name) + '</td><td>' + enabled + '</td><td>' + k.request_count + '次</td>' +
+          '<td class="actions-cell">' +
+            '<button class="btn btn-sm btn-outline" onclick="disableKey(' + k.id + ')">' + (k.enabled ? '禁用' : '启用') + '</button>' +
+            '<button class="btn btn-sm btn-danger" onclick="confirmDeleteKey(' + k.id + ', \\'' + escapeHtml(k.name) + '\\')">删除</button>' +
+          '</td></tr>';
+      });
+      keysHtml += '</tbody></table></div>';
+    }
+
+    document.getElementById("userDetailContent").innerHTML =
+      '<div class="user-info-grid">' +
+        '<div><strong>邮箱</strong><p>' + escapeHtml(user.email) + '</p></div>' +
+        '<div><strong>验证状态</strong><p>' + (user.email_verified ? "已验证" : "未验证") + '</p></div>' +
+        '<div><strong>角色</strong><p><select id="editRole" class="input-sm"' + (user.role === "admin" ? ' onchange="updateUserField(\\'' + userId + '\\', \\'role\\', this.value)"' : '') + '><option value="user"' + (user.role==="user"?" selected":"") + '>用户</option><option value="admin"' + (user.role==="admin"?" selected":"") + '>管理员</option></select></p></div>' +
+        '<div><strong>会员</strong><p><select id="editMember" class="input-sm" onchange="updateUserField(\\'' + userId + '\\', \\'membership_type\\', this.value)"><option value="free"' + (user.membership_type==="free"?" selected":"") + '>Free</option><option value="plus"' + (user.membership_type==="plus"?" selected":"") + '>Plus</option><option value="pro"' + (user.membership_type==="pro"?" selected":"") + '>Pro</option></select></p></div>' +
+        '<div><strong>到期时间</strong><p>' + (user.membership_expires_at ? formatDate(user.membership_expires_at) : "永久") + '</p></div>' +
+        '<div><strong>注册时间</strong><p>' + formatDate(user.created_at) + '</p></div>' +
+        '<div><strong>今日请求</strong><p>' + (stats ? stats.dailyRequests : "-") + '</p></div>' +
+        '<div><strong>月Token</strong><p>' + (stats ? stats.monthlyTokens.toLocaleString() : "-") + '</p></div>' +
+      '</div>' +
+      '<button class="btn btn-primary" style="margin-top:12px" onclick="showUserKeyModal(\\'' + userId + '\\')">+ 为新 Key</button>' +
+      keysHtml +
+      '<style>.user-info-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; } .user-info-grid p { color: var(--text); margin-top: 4px; }</style>';
+  } catch (e) {
+    document.getElementById("userDetailContent").innerHTML = '<p class="error-text">加载失败: ' + escapeHtml(e.message) + '</p>';
+  }
+}
+
+async function updateUserField(userId, field, value) {
+  try {
+    const body = { id: userId };
+    body[field] = value;
+    await apiJson("POST", "/api/admin/users/update", body);
+    showToast("更新成功", "success");
+  } catch (e) {
+    showToast("更新失败: " + e.message, "error");
+  }
+}
+
+function showUserKeyModal(userId) {
+  document.getElementById("formUserKey").reset();
+  document.getElementById("formUserKey").user_id.value = userId;
+  document.getElementById("formUserKey").style.display = "";
+  document.getElementById("userKeyResult").style.display = "none";
+  document.getElementById("modal-user-key").style.display = "flex";
+}
+
+async function handleUserKeyCreate(e) {
+  e.preventDefault();
+  const form = e.target;
+  const body = { name: form.name.value.trim(), user_id: form.user_id.value };
+  body.limit_type = form.limit_type.value;
+  const limit = form.request_limit.value.trim();
+  if (limit) body.request_limit = parseInt(limit);
+  if (form.notes.value.trim()) body.notes = form.notes.value.trim();
+  try {
+    const { data } = await apiJson("POST", "/api/admin/keys/create", body);
+    form.style.display = "none";
+    const resultDiv = document.getElementById("userKeyResult");
+    resultDiv.innerHTML =
+      '<div class="key-display">' +
+        '<strong>Key 创建成功 (ID: ' + data.id + ')</strong>' +
+        '<code id="newUserKey">' + data.rawKey + '</code>' +
+        '<button class="btn btn-sm btn-outline" onclick="copyUserKey()">复制</button>' +
+        '<span id="copyUserKeyMsg" class="copy-success" style="display:none">已复制</span>' +
+        '<p class="key-warning">此 Key 仅显示一次，请立即复制并安全保存。</p>' +
+      '</div>' +
+      '<div style="margin-top:12px">' +
+        '<button class="btn btn-primary" onclick="closeModal(\\'modal-user-key\\'); showUserDetail(\\'' + body.user_id + '\\')">完成</button>' +
+      '</div>';
+    resultDiv.style.display = "block";
+  } catch (e) {
+    showToast("创建失败: " + e.message, "error");
+  }
+}
+
+function copyUserKey() {
+  const code = document.getElementById("newUserKey");
+  navigator.clipboard.writeText(code.textContent).then(() => {
+    document.getElementById("copyUserKeyMsg").style.display = "inline";
+    setTimeout(() => { document.getElementById("copyUserKeyMsg").style.display = "none"; }, 2000);
+  });
+}
+
+async function disableKey(id) {
+  try {
+    await apiJson("POST", "/api/admin/keys/update", { id: id, enabled: 0 });
+    showToast("Key 已禁用", "success");
+    // refresh user detail - find current userId
+    loadUsers();
+    closeModal("modal-user");
+  } catch (e) {
+    showToast("操作失败: " + e.message, "error");
+  }
+}
+
+async function confirmDeleteKey(id, name) {
+  showConfirm("删除 API Key", '确定要删除 Key "' + name + '" (ID: ' + id + ') 吗？', async () => {
+    try {
+      await apiJson("POST", "/api/admin/keys/delete", { id: id });
+      closeModal("modal-confirm");
+      showToast("已删除", "success");
+      loadUsers();
+      closeModal("modal-user");
+    } catch (e) {
+      showToast("删除失败: " + e.message, "error");
+    }
+  });
 }
 
 // ── Modal Helpers ──
