@@ -25,6 +25,7 @@ import {
 	getUserSessions,
 	getUserApiKeys,
 	getUserUsageStats,
+	createUser,
 	updateUser,
 	writeAdminLog,
 	getAdminLogs,
@@ -201,6 +202,10 @@ export async function handleAdminApi(request, env, pathname) {
 		// POST /api/admin/users/update
 		case pathname === "/api/admin/users/update" && method === "POST":
 			return handleUpdateUser(request, env);
+
+		// POST /api/admin/users/create
+		case pathname === "/api/admin/users/create" && method === "POST":
+			return handleCreateUser(request, env);
 
 		default:
 				return error("Not Found", 404);
@@ -415,6 +420,52 @@ async function handleUpdateUser(request, env) {
 	}).catch(() => {});
 
 	return json({ success: true });
+}
+
+async function handleCreateUser(request, env) {
+	let body;
+	try {
+		body = await request.json();
+	} catch {
+		return error("Invalid JSON body", 400);
+	}
+
+	const { email } = body;
+	if (!email || typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+		return error("有效的邮箱地址为必填项", 400);
+	}
+
+	// 允许的角色和会员类型
+	const allowedRoles = ["user", "admin"];
+	const allowedMemberships = ["free", "plus", "pro"];
+
+	const role = body.role && allowedRoles.includes(body.role) ? body.role : "user";
+	const membershipType = body.membership_type && allowedMemberships.includes(body.membership_type)
+		? body.membership_type
+		: "free";
+
+	try {
+		const user = await createUser(env, {
+			email: email.trim(),
+			role,
+			membership_type: membershipType,
+		});
+
+		// 写管理员操作日志
+		writeAdminLog(env, {
+			admin_user_id: "admin_system",
+			action: "create_user",
+			target_user_id: user.id,
+			details: JSON.stringify({ email: user.email, role, membership_type: membershipType }),
+		}).catch(() => {});
+
+		return json({ success: true, data: user });
+	} catch (err) {
+		if (err.message === "DUPLICATE_EMAIL") {
+			return error("该邮箱已被注册", 409);
+		}
+		throw err;
+	}
 }
 
 async function handleUserStats(env, userId) {

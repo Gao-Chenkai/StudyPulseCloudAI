@@ -120,6 +120,7 @@ function getAdminHtml(csrfToken, hasCfAccess) {
         <option value="pro">Pro</option>
       </select>
       <button class="btn btn-outline" onclick="loadUsers()">查询</button>
+      <button class="btn btn-primary" onclick="showCreateUserModal()">+ 新建用户</button>
     </div>
     <div id="usersTableContainer" class="table-container">
       <p class="empty-state">点击查询加载用户</p>
@@ -250,6 +251,34 @@ function getAdminHtml(csrfToken, hasCfAccess) {
       </div>
     </form>
     <div id="userKeyResult" style="display:none"></div>
+  </div>
+</div>
+
+<!-- 创建用户模态框 -->
+<div id="modal-create-user" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <h3>新建用户</h3>
+    <form id="formCreateUser" onsubmit="handleCreateUserSubmit(event)">
+      <label>邮箱 *</label>
+      <input type="email" name="email" class="input" required placeholder="user@example.com">
+      <label>角色</label>
+      <select name="role" class="input">
+        <option value="user">用户</option>
+        <option value="admin">管理员</option>
+      </select>
+      <label>会员等级</label>
+      <select name="membership_type" class="input">
+        <option value="free">Free</option>
+        <option value="plus">Plus</option>
+        <option value="pro">Pro</option>
+      </select>
+      <p class="text-muted" style="font-size:12px; margin-top:8px;">管理后台创建的用户默认已完成邮箱认证。</p>
+      <div class="modal-actions">
+        <button type="submit" class="btn btn-primary">创建</button>
+        <button type="button" class="btn btn-outline" onclick="closeModal('modal-create-user')">取消</button>
+      </div>
+    </form>
+    <div id="createUserResult" style="display:none"></div>
   </div>
 </div>
 
@@ -1145,6 +1174,42 @@ function copyUserKey() {
     document.getElementById("copyUserKeyMsg").style.display = "inline";
     setTimeout(() => { document.getElementById("copyUserKeyMsg").style.display = "none"; }, 2000);
   });
+}
+
+function showCreateUserModal() {
+  document.getElementById("formCreateUser").reset();
+  document.getElementById("formCreateUser").style.display = "";
+  document.getElementById("createUserResult").style.display = "none";
+  document.getElementById("modal-create-user").style.display = "flex";
+}
+
+async function handleCreateUserSubmit(e) {
+  e.preventDefault();
+  const form = e.target;
+  const body = {
+    email: form.email.value.trim(),
+    role: form.role.value,
+    membership_type: form.membership_type.value,
+  };
+  try {
+    const { data: user } = await apiJson("POST", "/api/admin/users/create", body);
+    form.style.display = "none";
+    const resultDiv = document.getElementById("createUserResult");
+    resultDiv.innerHTML =
+      '<div class="key-display">' +
+        '<strong>用户创建成功</strong>' +
+        '<p>邮箱: ' + escapeHtml(user.email) + '</p>' +
+        '<p>ID: <code>' + user.id + '</code></p>' +
+        '<p style="color:var(--success);margin-top:4px">已默认认证，可直接登录使用。</p>' +
+      '</div>' +
+      '<div style="margin-top:12px">' +
+        '<button class="btn btn-primary" onclick="closeModal(\\'modal-create-user\\'); loadUsers()">完成</button>' +
+        '<button class="btn btn-outline" style="margin-left:8px" onclick="closeModal(\\'modal-create-user\\'); showUserDetail(\\'' + user.id + '\\')">查看详情</button>' +
+      '</div>';
+    resultDiv.style.display = "block";
+  } catch (e) {
+    showToast("创建失败: " + e.message, "error");
+  }
 }
 
 async function disableKey(id) {

@@ -386,6 +386,42 @@ export async function getUserUsageStats(env, userId) {
 }
 
 /**
+ * 创建新用户（管理后台使用）。
+ * 管理员创建的用户默认为已认证（email_verified=1），跳过邮箱验证流程。
+ *
+ * @param {{ StudyPulseDB: D1Database }} env
+ * @param {{ email: string, role?: string, membership_type?: string }} params
+ * @returns {Promise<{id: string, email: string}>}
+ */
+export async function createUser(env, params) {
+	const email = params.email.trim().toLowerCase();
+
+	// 检查邮箱是否已存在
+	const existing = await env.StudyPulseDB.prepare(
+		"SELECT id FROM users WHERE email = ?",
+	)
+		.bind(email)
+		.first();
+
+	if (existing) {
+		throw new Error("DUPLICATE_EMAIL");
+	}
+
+	const userId = crypto.randomUUID();
+	const role = params.role || "user";
+	const membership = params.membership_type || "free";
+
+	await env.StudyPulseDB.prepare(
+		`INSERT INTO users (id, email, email_verified, role, membership_type)
+		 VALUES (?, ?, 1, ?, ?)`,
+	)
+		.bind(userId, email, role, membership)
+		.run();
+
+	return { id: userId, email };
+}
+
+/**
  * 更新用户信息。
  */
 export async function updateUser(env, userId, fields) {
