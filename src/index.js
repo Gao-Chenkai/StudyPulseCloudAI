@@ -343,6 +343,50 @@ async function handleChatStream(request, env, ctx, apiKey, messages) {
 		reader.cancel().catch(() => {});
 	});
 
+	/**
+	 * 处理单个完整 SSE 事件：
+	 *   - 追踪含 usage 的事件，供流结束后计次使用
+	 *   - 透传完整事件给客户端
+	 * @param {string} event - 以 "\n\n" 分隔的完整 SSE 事件（不含尾部 "\n\n"）
+	 * @param {ReadableStreamDefaultController} controller
+	 */
+	function processEvent(event, controller) {
+		// 提取 data: 行，追踪含 usage 的事件
+		const dataLine = event
+			.split("\n")
+			.find((line) => line.startsWith("data: "));
+		if (dataLine) {
+			const json = dataLine.slice(6);
+			if (json !== "[DONE]") {
+				try {
+					const parsed = JSON.parse(json);
+					if (parsed.usage) {
+						lastUsageEvent = json;
+					}
+				} catch {
+					/* 非 JSON 行忽略 */
+				}
+			}
+		}
+		// 透传完整 SSE 事件（还原 "\n\n" 分隔符）
+		controller.enqueue(encoder.encode(event + "\n\n"));
+	}
+
+	/**
+	 * 将新到达的字节追加到 buffer，按 "\n\n" 分割完整事件并逐个处理。
+	 * 尾部未完成的部分保留在 buffer 中。
+	 * @param {ReadableStreamDefaultController} controller
+	 */
+	function processBuffer(controller) {
+		const parts = buffer.split("\n\n");
+		// 最后一段是尾部残留，放回 buffer
+		buffer = parts.pop();
+
+		for (const event of parts) {
+			processEvent(event, controller);
+		}
+	}
+
 	const wrapped = new ReadableStream({
 		async pull(controller) {
 			if (aborted) {
@@ -376,31 +420,26 @@ async function handleChatStream(request, env, ctx, apiKey, messages) {
 				return;
 			}
 
+			// 1. 先处理 value（done === true 时 value 通常为 undefined，
+			//    但防御性处理：即使 done 为 true 也先解码可能附带的数据）
+			if (value) {
+				buffer += decoder.decode(value, { stream: true });
+				processBuffer(controller);
+			}
+
 			if (done) {
-				// 2. 流结束：处理 buffer 剩余内容 + post-processing
-				// 处理 buffer 中可能残留的最后一段（可能没有 \n\n 结尾）
+				// 2. 流结束：flush TextDecoder 内部缓存
+				//    decode() 无参数 → stream: false，flush 所有内部缓冲的
+				//    不完整多字节序列，确保最后几个字节不丢失
+				buffer += decoder.decode();
+				processBuffer(controller);
+
+				// 3. 处理 buffer 中最后残留的内容（可能不以 \n\n 结尾）
 				if (buffer.trim()) {
-					const dataLine = buffer
-						.split("\n")
-						.find((line) => line.startsWith("data: "));
-					if (dataLine) {
-						const json = dataLine.slice(6);
-						if (json !== "[DONE]") {
-							try {
-								const parsed = JSON.parse(json);
-								if (parsed.usage) {
-									lastUsageEvent = json;
-								}
-							} catch {
-								/* 非 JSON 行忽略 */
-							}
-						}
-					}
-					// 透传尾部残留
-					controller.enqueue(encoder.encode(buffer));
+					processEvent(buffer, controller);
 				}
 
-				// 3. 提取 usage
+				// 4. 提取 usage
 				let usage = null;
 				if (lastUsageEvent) {
 					try {
@@ -410,7 +449,7 @@ async function handleChatStream(request, env, ctx, apiKey, messages) {
 					}
 				}
 
-				// 4. post-processing：计次 + 写日志（异步，不阻塞流关闭）
+				// 5. post-processing：计次 + 写日志（异步，不阻塞流关闭）
 				const latency = Date.now() - startTime;
 				const logEntry = {
 					api_key_id: apiKey.id,
@@ -444,36 +483,6 @@ async function handleChatStream(request, env, ctx, apiKey, messages) {
 
 				controller.close();
 				return;
-			}
-
-			// 5. 新数据到达：追加到 buffer，按 "\n\n" 分割完整事件
-			buffer += decoder.decode(value, { stream: true });
-
-			const parts = buffer.split("\n\n");
-			// 最后一段是尾部残留，放回 buffer
-			buffer = parts.pop();
-
-			for (const event of parts) {
-				// 提取 data: 行，追踪含 usage 的事件
-				const dataLine = event
-					.split("\n")
-					.find((line) => line.startsWith("data: "));
-				if (dataLine) {
-					const json = dataLine.slice(6);
-					if (json !== "[DONE]") {
-						try {
-							const parsed = JSON.parse(json);
-							if (parsed.usage) {
-								lastUsageEvent = json;
-							}
-						} catch {
-							/* 非 JSON 行忽略 */
-						}
-					}
-				}
-
-				// 透传完整 SSE 事件（还原 "\n\n" 分隔符）
-				controller.enqueue(encoder.encode(event + "\n\n"));
 			}
 		},
 
