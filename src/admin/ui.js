@@ -651,9 +651,14 @@ async function apiCall(method, path, body) {
   headers["X-CSRF-Token"] = csrfToken;
   if (authToken) headers["Authorization"] = "Bearer " + authToken;
 
-  // 确保 header 值仅含 ASCII（浏览器 fetch 不允许 ISO-8859-1 以外字符）
-  for (const [k, v] of Object.entries(headers)) {
-    headers[k] = String(v).replace(/[^\x00-\xFF]/g, "");
+  // 确保 header 值仅含 Latin-1（浏览器 fetch 不允许以外字符）
+  for (const k of Object.keys(headers)) {
+    const v = String(headers[k]);
+    let safe = "";
+    for (let i = 0; i < v.length; i++) {
+      if (v.charCodeAt(i) <= 0xFF) safe += v[i];
+    }
+    headers[k] = safe;
   }
 
   const opts = { method, headers };
