@@ -387,8 +387,17 @@ async function handleChatStream(request, env, ctx, apiKey, messages) {
 		}
 	}
 
+	let streamDone = false;
+
 	const wrapped = new ReadableStream({
 		async pull(controller) {
+			// 延迟关闭：上一轮 pull() 已 enqueue 完所有数据并标记 streamDone，
+			// 本轮再 close，确保 enqueue 的 SSE 事件已刷新到网络。
+			if (streamDone) {
+				controller.close();
+				return;
+			}
+
 			if (aborted) {
 				reader.cancel().catch(() => {});
 				controller.close();
@@ -481,7 +490,9 @@ async function handleChatStream(request, env, ctx, apiKey, messages) {
 					),
 				);
 
-				controller.close();
+				// 标记流已处理完毕，下一轮 pull() 再 close，
+				// 确保本轮 enqueue 的 SSE 事件已刷新到网络。
+				streamDone = true;
 				return;
 			}
 		},
