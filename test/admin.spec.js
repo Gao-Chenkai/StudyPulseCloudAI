@@ -35,7 +35,7 @@ async function adminFetch(path, options = {}) {
 	const opts = { method, headers };
 	if (body) opts.body = JSON.stringify(body);
 
-	return SELF.fetch(`http://example.com${path}`, opts);
+	return SELF.fetch(`http://localhost${path}`, opts);
 }
 
 // 种子一些测试 Key

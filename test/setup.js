@@ -9,13 +9,14 @@ import { beforeAll } from "vitest";
 import { sha256Hex } from "../src/auth.js";
 import migration1Sql from "../migrations/0001_create_api_keys.sql?raw";
 import migration2Sql from "../migrations/0002_create_request_logs.sql?raw";
+import migration3Sql from "../migrations/0002_add_limit_type.sql?raw";
 
 // 与 v0.2 内存 Set 时期一致的 Beta Key，保证旧测试不破
 const BETA_TEST_KEY = "sp_beta_test001";
 
 beforeAll(async () => {
 	// 1. 应用所有 migration（建表 + 索引，幂等）
-	for (const sql of [migration1Sql, migration2Sql]) {
+	for (const sql of [migration1Sql, migration2Sql, migration3Sql]) {
 		const statements = sql
 			.split(";")
 			.map((chunk) =>
