@@ -279,11 +279,10 @@ async function handleChat(request, env, ctx) {
  * 与 handleChat 共享鉴权、Secret 校验、Body 解析和消息组装。
  * 差异在于 AI 调用和响应格式：
  *   - 调用 minimaxChatStream() 获取上游 SSE ReadableStream
- *   - 维护 buffer 按 "\n\n" 分割完整 SSE 事件（避免网络分片导致数据丢失）
- *   - 透传 MiniMax 原始 SSE 格式给客户端
- *   - 从最后一个含 usage 的非 [DONE] chunk 提取 token 数据
- *   - 流结束后通过 ctx.waitUntil 异步执行计次和日志
- *   - 检测客户端断开（request.signal "abort"），中止时不计数
+ *   - 使用 ReadableStream.tee() 将上游流一分为二：
+ *       客户端分支：零包装直接作为 Response body 返回，保证字节级完整
+ *       用量分支：  异步扫描提取 token，计次后写日志
+ *   - 检测客户端断开（request.signal "abort"），终止用量扫描
  *   - usage 缺失时仍正常计次，日志标记 error_message="usage_missing"
  *
  * @param {Request} request
@@ -326,129 +325,71 @@ async function handleChatStream(request, env, ctx, apiKey, messages) {
 		);
 	}
 
-	const reader = upstreamResponse.body.getReader();
-	const decoder = new TextDecoder();
-	const encoder = new TextEncoder();
+	// 2. tee() 将上游流一分为二，客户端分支零包装直接返回
+	const [clientStream, usageStream] = upstreamResponse.body.tee();
 
-	// SSE 事件缓冲区：按 "\n\n" 分割完整事件，尾部残留留在 buffer 中
-	let buffer = "";
-	// 最后一个包含 usage 的 SSE data JSON 字符串
-	let lastUsageEvent = null;
-	// 客户端是否已断开
-	let aborted = false;
+	// 3. 异步处理用量分支（独立 reader，不阻塞客户端分支）
+	ctx.waitUntil(
+		(async () => {
+			const reader = usageStream.getReader();
+			const decoder = new TextDecoder();
+			let buffer = "";
+			let lastUsageEvent = null;
 
-	// 监听客户端断开
-	request.signal.addEventListener("abort", () => {
-		aborted = true;
-		reader.cancel().catch(() => {});
-	});
-
-	/**
-	 * 处理单个完整 SSE 事件：
-	 *   - 追踪含 usage 的事件，供流结束后计次使用
-	 *   - 透传完整事件给客户端
-	 * @param {string} event - 以 "\n\n" 分隔的完整 SSE 事件（不含尾部 "\n\n"）
-	 * @param {ReadableStreamDefaultController} controller
-	 */
-	function processEvent(event, controller) {
-		// 提取 data: 行，追踪含 usage 的事件
-		const dataLine = event
-			.split("\n")
-			.find((line) => line.startsWith("data: "));
-		if (dataLine) {
-			const json = dataLine.slice(6);
-			if (json !== "[DONE]") {
-				try {
-					const parsed = JSON.parse(json);
-					if (parsed.usage) {
-						lastUsageEvent = json;
-					}
-				} catch {
-					/* 非 JSON 行忽略 */
-				}
-			}
-		}
-		// 透传完整 SSE 事件（还原 "\n\n" 分隔符）
-		controller.enqueue(encoder.encode(event + "\n\n"));
-	}
-
-	/**
-	 * 将新到达的字节追加到 buffer，按 "\n\n" 分割完整事件并逐个处理。
-	 * 尾部未完成的部分保留在 buffer 中。
-	 * @param {ReadableStreamDefaultController} controller
-	 */
-	function processBuffer(controller) {
-		const parts = buffer.split("\n\n");
-		// 最后一段是尾部残留，放回 buffer
-		buffer = parts.pop();
-
-		for (const event of parts) {
-			processEvent(event, controller);
-		}
-	}
-
-	let streamDone = false;
-
-	const wrapped = new ReadableStream({
-		async pull(controller) {
-			// 延迟关闭：上一轮 pull() 已 enqueue 完所有数据并标记 streamDone，
-			// 本轮再 close，确保 enqueue 的 SSE 事件已刷新到网络。
-			if (streamDone) {
-				controller.close();
-				return;
-			}
-
-			if (aborted) {
+			// 客户端断开时取消用量 reader
+			request.signal.addEventListener("abort", () => {
 				reader.cancel().catch(() => {});
-				controller.close();
-				return;
-			}
-
-			let done;
-			let value;
+			});
 
 			try {
-				({ done, value } = await reader.read());
-			} catch (err) {
-				// 流读取出错 → 不计次，异步写失败日志
-				console.error("Stream read error:", err?.message || err);
-				const latency = Date.now() - startTime;
-				ctx.waitUntil(
-					writeRequestLog(env, {
-						api_key_id: apiKey.id,
-						model,
-						provider,
-						status: 502,
-						latency_ms: latency,
-						ip: clientIp,
-						user_agent: clientUa,
-						error_message: (err?.message || "Stream read error").slice(0, 500),
-					}).catch((e) => console.error("Failed to write error log:", e?.message || e)),
-				);
-				controller.error(err);
-				return;
-			}
+				while (true) {
+					const { done, value } = await reader.read();
+					if (done) break;
 
-			// 1. 先处理 value（done === true 时 value 通常为 undefined，
-			//    但防御性处理：即使 done 为 true 也先解码可能附带的数据）
-			if (value) {
-				buffer += decoder.decode(value, { stream: true });
-				processBuffer(controller);
-			}
-
-			if (done) {
-				// 2. 流结束：flush TextDecoder 内部缓存
-				//    decode() 无参数 → stream: false，flush 所有内部缓冲的
-				//    不完整多字节序列，确保最后几个字节不丢失
-				buffer += decoder.decode();
-				processBuffer(controller);
-
-				// 3. 处理 buffer 中最后残留的内容（可能不以 \n\n 结尾）
-				if (buffer.trim()) {
-					processEvent(buffer, controller);
+					buffer += decoder.decode(value, { stream: true });
+					const parts = buffer.split("\n\n");
+					buffer = parts.pop();
+					for (const event of parts) {
+						const dataLine = event
+							.split("\n")
+							.find((line) => line.startsWith("data: "));
+						if (dataLine) {
+							const json = dataLine.slice(6);
+							if (json !== "[DONE]") {
+								try {
+									const parsed = JSON.parse(json);
+									if (parsed.usage) {
+										lastUsageEvent = json;
+									}
+								} catch {
+									/* 非 JSON 行忽略 */
+								}
+							}
+						}
+					}
 				}
 
-				// 4. 提取 usage
+				// Flush remaining
+				buffer += decoder.decode();
+				if (buffer.trim()) {
+					const dataLine = buffer
+						.split("\n")
+						.find((line) => line.startsWith("data: "));
+					if (dataLine) {
+						const json = dataLine.slice(6);
+						if (json !== "[DONE]") {
+							try {
+								const parsed = JSON.parse(json);
+								if (parsed.usage) {
+									lastUsageEvent = json;
+								}
+							} catch {
+								/* 非 JSON 行忽略 */
+							}
+						}
+					}
+				}
+
 				let usage = null;
 				if (lastUsageEvent) {
 					try {
@@ -458,7 +399,6 @@ async function handleChatStream(request, env, ctx, apiKey, messages) {
 					}
 				}
 
-				// 5. post-processing：计次 + 写日志（异步，不阻塞流关闭）
 				const latency = Date.now() - startTime;
 				const logEntry = {
 					api_key_id: apiKey.id,
@@ -474,36 +414,35 @@ async function handleChatStream(request, env, ctx, apiKey, messages) {
 				};
 
 				if (!usage) {
-					// usage 缺失：仍计入次数（防止绕过），但标记异常
 					logEntry.error_message = "usage_missing";
 					console.warn(
 						`Stream completed but usage missing for api_key_id=${apiKey.id}`,
 					);
 				}
 
-				ctx.waitUntil(
-					Promise.all([
-						incrementApiKeyUsage(env, apiKey.id, usage?.total_tokens),
-						writeRequestLog(env, logEntry),
-					]).catch((e) =>
-						console.error("Stream post-processing error:", e?.message || e),
-					),
-				);
-
-				// 标记流已处理完毕，下一轮 pull() 再 close，
-				// 确保本轮 enqueue 的 SSE 事件已刷新到网络。
-				streamDone = true;
-				return;
+				await Promise.all([
+					incrementApiKeyUsage(env, apiKey.id, usage?.total_tokens),
+					writeRequestLog(env, logEntry),
+				]);
+			} catch (err) {
+				console.error("Usage stream processing error:", err?.message || err);
+				const latency = Date.now() - startTime;
+				await writeRequestLog(env, {
+					api_key_id: apiKey.id,
+					model,
+					provider,
+					status: 200,
+					latency_ms: latency,
+					ip: clientIp,
+					user_agent: clientUa,
+					error_message: (err?.message || "Usage processing error").slice(0, 500),
+				}).catch(() => {});
 			}
-		},
+		})(),
+	);
 
-		cancel() {
-			aborted = true;
-			reader.cancel().catch(() => {});
-		},
-	});
-
-	return new Response(wrapped, {
+	// 4. 直接返回上游 SSE 流 — 零包装、零修改
+	return new Response(clientStream, {
 		headers: {
 			"Content-Type": "text/event-stream",
 			"Cache-Control": "no-cache",
