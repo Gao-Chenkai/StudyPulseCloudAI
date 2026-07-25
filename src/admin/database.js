@@ -65,12 +65,17 @@ export { createApiKey } from "../database/api_keys.js";
  * @returns {Promise<boolean>}
  */
 export async function isEmailBlacklisted(email, env) {
-	const row = await env.StudyPulseDB.prepare(
-		"SELECT email FROM blacklisted_emails WHERE email = ?",
-	)
-		.bind(email.trim().toLowerCase())
-		.first();
-	return !!row;
+	try {
+		const row = await env.StudyPulseDB.prepare(
+			"SELECT email FROM blacklisted_emails WHERE email = ?",
+		)
+			.bind(email.trim().toLowerCase())
+			.first();
+		return !!row;
+	} catch (e) {
+		console.error("isEmailBlacklisted error:", e?.message || e);
+		return false;
+	}
 }
 
 /**
