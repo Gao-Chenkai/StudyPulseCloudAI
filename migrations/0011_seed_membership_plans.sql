@@ -4,11 +4,11 @@
 --
 -- 目的：
 --   插入默认的三种会员等级配置。
---   free：每日 50 次，月 100K tokens
---   plus：每日 500 次，月 1M tokens
---   pro：不限量
+--   free：每日 5 次，月 10K tokens
+--   plus：每日 100 次，月 200K tokens
+--   pro：每日 750 次，月 1.5M tokens
 
 INSERT OR IGNORE INTO membership_plans (id, name, daily_request_limit, monthly_token_limit, available_models) VALUES
-    ('free', 'Free', 50, 100000, '["MiniMax-M3"]'),
-    ('plus', 'Plus', 500, 1000000, '["MiniMax-M3"]'),
-    ('pro', 'Pro', NULL, NULL, '["MiniMax-M3"]');
+    ('free', 'Free', 5, 10000, '["MiniMax-M3"]'),
+    ('plus', 'Plus', 100, 200000, '["MiniMax-M3"]'),
+    ('pro', 'Pro', 750, 1500000, '["MiniMax-M3"]');

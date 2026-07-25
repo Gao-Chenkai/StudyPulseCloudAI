@@ -24,7 +24,8 @@ import { writeRequestLog } from "./admin/database.js";
 import { authenticateRequest } from "./auth/middleware.js";
 import { sendVerificationCode, verifyCode } from "./auth/email.js";
 import { createSession, destroySession } from "./auth/session.js";
-import { checkUserQuota, recordUsage } from "./membership/membership.js";
+import { checkUserQuota, getMembershipPlan, recordUsage } from "./membership/membership.js";
+import { getUserById } from "./users/users.js";
 
 // 服务元信息
 const SERVICE_META = {
@@ -119,6 +120,11 @@ function handlePublicApi(request, env, ctx, pathname, method) {
 		return handleLogout(request, env);
 	}
 
+	// 用户信息
+	if (pathname === "/user/profile" && method === "GET") {
+		return handleUserProfile(request, env);
+	}
+
 	// AI 聊天接口
 	if (pathname === "/v1/chat" && method === "POST") {
 		return handleChat(request, env, ctx);
@@ -206,10 +212,15 @@ async function handleVerifyCode(request, env) {
 	// 创建 Session
 	const session = await createSession(result.userId, env);
 
+	// 查询用户会员信息
+	const user = await getUserById(result.userId, env);
+
 	return Response.json({
 		success: true,
 		data: {
 			token: session.token,
+			membership_type: user?.membership_type || "free",
+			membership_expires_at: user?.membership_expires_at || null,
 		},
 	});
 }

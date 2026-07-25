@@ -1105,7 +1105,7 @@ async function showUserDetail(userId) {
       '<div class="user-info-grid">' +
         '<div><strong>邮箱</strong><p>' + escapeHtml(user.email) + '</p></div>' +
         '<div><strong>验证状态</strong><p>' + (user.email_verified ? "已验证" : "未验证") + '</p></div>' +
-        '<div><strong>角色</strong><p><select id="editRole" class="input-sm"' + (user.role === "admin" ? ' onchange="updateUserField(\\'' + userId + '\\', \\'role\\', this.value)"' : '') + '><option value="user"' + (user.role==="user"?" selected":"") + '>用户</option><option value="admin"' + (user.role==="admin"?" selected":"") + '>管理员</option></select></p></div>' +
+        '<div><strong>角色</strong><p><select id="editRole" class="input-sm" onchange="updateUserField(\\'' + userId + '\\', \\'role\\', this.value)"><option value="user"' + (user.role==="user"?" selected":"") + '>用户</option><option value="admin"' + (user.role==="admin"?" selected":"") + '>管理员</option></select></p></div>' +
         '<div><strong>会员</strong><p><select id="editMember" class="input-sm" onchange="updateUserField(\\'' + userId + '\\', \\'membership_type\\', this.value)"><option value="free"' + (user.membership_type==="free"?" selected":"") + '>Free</option><option value="plus"' + (user.membership_type==="plus"?" selected":"") + '>Plus</option><option value="pro"' + (user.membership_type==="pro"?" selected":"") + '>Pro</option></select></p></div>' +
         '<div><strong>到期时间</strong><p>' + (user.membership_expires_at ? formatDate(user.membership_expires_at) : "永久") + '</p></div>' +
         '<div><strong>注册时间</strong><p>' + formatDate(user.created_at) + '</p></div>' +
