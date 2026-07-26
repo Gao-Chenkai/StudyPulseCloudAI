@@ -53,40 +53,50 @@ const ADMIN_HOSTNAME = "admin.chenkai.space";
  */
 export default {
 	async fetch(request, env, ctx) {
-		const url = new URL(request.url);
-		const { pathname } = url;
-		const method = request.method.toUpperCase();
-		const hostname = url.hostname;
+		try {
+			const url = new URL(request.url);
+			const { pathname } = url;
+			const method = request.method.toUpperCase();
+			const hostname = url.hostname;
 
-		console.log(`[${method}] ${hostname}${pathname}`);
+			console.log(`[${method}] ${hostname}${pathname}`);
 
-		// ── 管理后台子域名：仅 admin.chenkai.space ──
-		if (hostname === ADMIN_HOSTNAME) {
-			return handleAdmin(request, env, ctx, pathname, method);
-		}
-
-		// ── 公开 API 子域名：仅 spapi.chenkai.space ──
-		if (hostname === SPAPI_HOSTNAME) {
-			return handlePublicApi(request, env, ctx, pathname, method);
-		}
-
-		// ── 本地开发 & Workers.dev 调试：路径路由（兼容全部功能）──
-		if (
-			hostname === "localhost" ||
-			hostname.startsWith("127.0.0.1") ||
-			hostname.endsWith(".workers.dev")
-		) {
-			if (
-				pathname.startsWith("/api/admin/") ||
-				pathname.startsWith("/admin")
-			) {
-				return handleAdmin(request, env, ctx, pathname, method);
+			// ── 管理后台子域名：仅 admin.chenkai.space ──
+			if (hostname === ADMIN_HOSTNAME) {
+				return await handleAdmin(request, env, ctx, pathname, method);
 			}
-			return handlePublicApi(request, env, ctx, pathname, method);
-		}
 
-		// ── 未知主机名 → 404 ──
-		return Response.json({ error: "Not Found" }, { status: 404 });
+			// ── 公开 API 子域名：仅 spapi.chenkai.space ──
+			if (hostname === SPAPI_HOSTNAME) {
+				return await handlePublicApi(request, env, ctx, pathname, method);
+			}
+
+			// ── 本地开发 & Workers.dev 调试：路径路由（兼容全部功能）──
+			if (
+				hostname === "localhost" ||
+				hostname.startsWith("127.0.0.1") ||
+				hostname.endsWith(".workers.dev")
+			) {
+				if (
+					pathname.startsWith("/api/admin/") ||
+					pathname.startsWith("/admin")
+				) {
+					return await handleAdmin(request, env, ctx, pathname, method);
+				}
+				return await handlePublicApi(request, env, ctx, pathname, method);
+			}
+
+			// ── 未知主机名 → 404 ──
+			return Response.json({ error: "Not Found" }, { status: 404 });
+		} catch (err) {
+			// 不要把未捕获异常升级成 Cloudflare 1101 HTML 页面；API 客户端需要
+			// 收到稳定的 JSON，并且异常详情只写入 Workers Logs，避免泄露内部信息。
+			console.error("Unhandled Worker request error:", err?.stack || err?.message || err);
+			return Response.json(
+				{ error: "Internal server error" },
+				{ status: 500 },
+			);
+		}
 	},
 };
 
@@ -397,7 +407,7 @@ async function handleChat(request, env, ctx) {
 	const messages = [{ role: "user", content: userContent }];
 
 	// 5. 流式分支
-	if (body.stream === true) {
+	if (body?.stream === true) {
 		return handleChatStream(request, env, ctx, { userId, apiKeyId }, messages, body.model);
 	}
 
@@ -568,6 +578,14 @@ async function handleChatStream(request, env, ctx, { userId, apiKeyId }, message
 	}
 
 	// 2. tee() 将上游流一分为二
+	if (!upstreamResponse.body || typeof upstreamResponse.body.tee !== "function") {
+		console.error("MiniMax stream response did not contain a readable body");
+		return Response.json(
+			{ error: "AI request failed" },
+			{ status: 502 },
+		);
+	}
+
 	const [clientStream, usageStream] = upstreamResponse.body.tee();
 
 	// 3. 异步处理用量分支
