@@ -48,19 +48,30 @@ export async function handleGitHubCallback(request, env) {
 	if (url.searchParams.get("error")) return redirect(`${returnTo}?error=github_denied`, 302);
 	if (!env.GITHUB_CLIENT_SECRET) return redirect(`${returnTo}?error=server_not_configured`, 302);
 
-	const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
-		method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" },
-		body: JSON.stringify({ client_id: env.GITHUB_CLIENT_ID || GITHUB_CLIENT_ID, client_secret: env.GITHUB_CLIENT_SECRET, code: url.searchParams.get("code"), redirect_uri: env.GITHUB_CALLBACK_URL || CALLBACK }),
-	});
-	const token = await tokenResponse.json();
+	let tokenResponse;
+	try {
+		tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
+			method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" },
+			body: JSON.stringify({ client_id: env.GITHUB_CLIENT_ID || GITHUB_CLIENT_ID, client_secret: env.GITHUB_CLIENT_SECRET, code: url.searchParams.get("code"), redirect_uri: env.GITHUB_CALLBACK_URL || CALLBACK }),
+		});
+	} catch (error) {
+		console.error("GitHub token exchange failed:", error?.message || error);
+		return redirect(`${returnTo}?error=github_token_exchange_failed`, 302);
+	}
+	const token = await tokenResponse.json().catch(() => ({}));
 	if (!token.access_token) return redirect(`${returnTo}?error=github_token_exchange_failed`, 302);
 	const githubHeaders = { Authorization: `Bearer ${token.access_token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
 	const [profileResponse, emailsResponse] = await Promise.all([
 		fetch("https://api.github.com/user", { headers: githubHeaders }),
 		fetch("https://api.github.com/user/emails", { headers: githubHeaders }),
 	]);
-	const profile = await profileResponse.json();
-	const emails = await emailsResponse.json();
+	if (!profileResponse.ok || !emailsResponse.ok) {
+		console.error("GitHub user lookup failed:", profileResponse.status, emailsResponse.status);
+		return redirect(`${returnTo}?error=github_profile_failed`, 302);
+	}
+	const profile = await profileResponse.json().catch(() => ({}));
+	const emails = await emailsResponse.json().catch(() => []);
+	if (!profile.id) return redirect(`${returnTo}?error=github_profile_failed`, 302);
 	const primary = Array.isArray(emails) ? emails.find((item) => item.primary && item.verified) || emails.find((item) => item.verified) : null;
 	if (!primary?.email) {
 		const challenge = await createAuthChallenge(env, {
@@ -75,7 +86,7 @@ export async function handleGitHubCallback(request, env) {
 	let user = await getUserByEmail(email, env);
 	if (!user) {
 		const id = crypto.randomUUID();
-		await env.StudyPulseDB.prepare(`INSERT INTO users (id, email, email_normalized, email_verified, role, membership_type, username, avatar_url) VALUES (?, ?, ?, 1, 'user', 'free', ?, ?)`)
+		await env.StudyPulseDB.prepare(`INSERT OR IGNORE INTO users (id, email, email_normalized, email_verified, role, membership_type, username, avatar_url) VALUES (?, ?, ?, 1, 'user', 'free', ?, ?)`)
 			.bind(id, email, email, profile.login || null, profile.avatar_url || null).run();
 		user = await getUserByEmail(email, env);
 	}
@@ -83,6 +94,9 @@ export async function handleGitHubCallback(request, env) {
 	const existingOAuth = await env.StudyPulseDB.prepare("SELECT user_id FROM user_oauth_accounts WHERE provider = 'github' AND provider_user_id = ?")
 		.bind(String(profile.id)).first();
 	if (existingOAuth && existingOAuth.user_id !== user.id) return redirect(`${returnTo}?error=github_already_bound`, 302);
+	const existingEmailOAuth = await env.StudyPulseDB.prepare("SELECT user_id FROM user_oauth_accounts WHERE provider = 'github' AND provider_email = ?")
+		.bind(email).first();
+	if (existingEmailOAuth && existingEmailOAuth.user_id !== user.id) return redirect(`${returnTo}?error=github_email_already_bound`, 302);
 	await env.StudyPulseDB.prepare(`INSERT INTO user_oauth_accounts (id, user_id, provider, provider_user_id, provider_email, username, avatar_url) VALUES (?, ?, 'github', ?, ?, ?, ?) ON CONFLICT(provider, provider_user_id) DO UPDATE SET user_id = excluded.user_id, provider_email = excluded.provider_email, username = excluded.username, avatar_url = excluded.avatar_url, updated_at = CURRENT_TIMESTAMP`)
 		.bind(crypto.randomUUID(), user.id, String(profile.id), email, profile.login || null, profile.avatar_url || null).run();
 	const session = await createSessionWithMetadata(user.id, env, { userAgent: request.headers.get("User-Agent") });
@@ -124,7 +138,7 @@ export async function handleGitHubBindVerify(request, env) {
 	let user = await getUserByEmail(email, env);
 	if (!user) {
 		const id = crypto.randomUUID();
-		await env.StudyPulseDB.prepare(`INSERT INTO users (id, email, email_normalized, email_verified, role, membership_type, username, avatar_url) VALUES (?, ?, ?, 1, 'user', 'free', ?, ?)`)
+		await env.StudyPulseDB.prepare(`INSERT OR IGNORE INTO users (id, email, email_normalized, email_verified, role, membership_type, username, avatar_url) VALUES (?, ?, ?, 1, 'user', 'free', ?, ?)`)
 			.bind(id, email, email, challenge.payload?.login || null, challenge.payload?.avatarUrl || null).run();
 		user = await getUserByEmail(email, env);
 	}
