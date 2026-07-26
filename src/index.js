@@ -408,7 +408,15 @@ async function handleChat(request, env, ctx) {
 
 	// 5. 流式分支
 	if (body?.stream === true) {
-		return handleChatStream(request, env, ctx, { userId, apiKeyId }, messages, body.model);
+		try {
+			return await handleChatStream(request, env, ctx, { userId, apiKeyId }, messages, body.model);
+		} catch (err) {
+			console.error("AI stream setup error:", err?.stack || err?.message || err);
+			return Response.json(
+				{ error: "AI request failed" },
+				{ status: 502 },
+			);
+		}
 	}
 
 	// 6. 额度检查（统一按 user_id）
@@ -586,7 +594,17 @@ async function handleChatStream(request, env, ctx, { userId, apiKeyId }, message
 		);
 	}
 
-	const [clientStream, usageStream] = upstreamResponse.body.tee();
+	let clientStream;
+	let usageStream;
+	try {
+		[clientStream, usageStream] = upstreamResponse.body.tee();
+	} catch (err) {
+		console.error("Failed to split MiniMax stream:", err?.stack || err?.message || err);
+		return Response.json(
+			{ error: "AI request failed" },
+			{ status: 502 },
+		);
+	}
 
 	// 3. 异步处理用量分支
 	ctx.waitUntil(
