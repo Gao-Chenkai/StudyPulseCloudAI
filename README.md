@@ -37,7 +37,7 @@ Cloudflare Workers 驱动的 AI 后端网关，为 StudyPulse iOS App 提供 Min
 - **API Key 鉴权** — D1 数据库持久化，SHA-256 哈希存储，支持启用/禁用/过期/配额控制
 - **请求额度控制** — 支持按次数（count）和按 Token（tokens）两种限额模式，仅在 AI 调用成功后计数
 - **请求日志** — 记录每次请求的元数据（不存 prompt/reply 内容），支持按 Key/用户/状态/调用方式筛选
-- **管理后台** — 内置 WebUI + RESTful API，支持 Key CRUD、用户管理、会员管理、邮箱黑名单、管理员操作日志
+- **管理后台** — 内置 WebUI + RESTful API，支持 Key CRUD、用户管理、会员管理、封禁用户、管理员操作日志
 - **域名隔离** — 公开 API 与管理后台绑定不同子域名（spapi.chenkai.space / admin.chenkai.space）
 - **多层安全** — Cloudflare Access SSO、CSRF 保护、常量时间比较、参数化查询防注入
 
@@ -169,7 +169,7 @@ studypulse-cloud-ai/
 │   │   └── membership.js             # 会员与额度管理（计划查询、额度检查、用量记录）
 │   └── admin/
 │       ├── auth.js                   # 管理员鉴权（Cloudflare Access / ADMIN_API_TOKEN）
-│       ├── database.js               # 管理后台 D1 操作（统计/Key/用户/黑名单/日志 CRUD）
+│       ├── database.js               # 管理后台 D1 操作（统计/Key/用户/封禁/日志 CRUD）
 │       ├── routes.js                 # 管理 API 路由 + CSRF 保护 + 安全响应头
 │       └── ui.js                     # 管理后台 WebUI（原生 HTML/CSS/JS）
 ├── migrations/                       # D1 数据库迁移（按编号顺序执行）
@@ -220,7 +220,7 @@ studypulse-cloud-ai/
 | **用户管理** | `src/users/users.js` | users 表查询/更新、用户统计、Session/Key 列表 |
 | **会员额度** | `src/membership/membership.js` | 会员计划查询、每日/每月额度检查、用量记录 |
 | **管理鉴权** | `src/admin/auth.js` | Cloudflare Access / ADMIN_API_TOKEN 双通道鉴权 |
-| **管理数据** | `src/admin/database.js` | 仪表盘统计、Key CRUD、用户管理、黑名单、管理员日志 |
+| **管理数据** | `src/admin/database.js` | 仪表盘统计、Key CRUD、用户管理、封禁用户、管理员日志 |
 | **管理路由** | `src/admin/routes.js` | RESTful 路由分发、CSRF 保护、安全头注入 |
 | **管理 UI** | `src/admin/ui.js` | 内置 WebUI 页面渲染 |
 
@@ -525,9 +525,9 @@ data: [DONE]
 | `GET` | `/api/admin/users/:id/keys` | 用户 API Key 列表 |
 | `POST` | `/api/admin/users/create` | 创建用户（管理员创建，默认已验证） |
 | `POST` | `/api/admin/users/update` | 更新用户（角色/会员/到期时间） |
-| `GET` | `/api/admin/blacklist` | 列出黑名单邮箱 |
-| `POST` | `/api/admin/blacklist/add` | 添加邮箱到黑名单 |
-| `POST` | `/api/admin/blacklist/remove` | 从黑名单移除邮箱 |
+| `GET` | `/api/admin/blacklist` | 列出已封禁邮箱 |
+| `POST` | `/api/admin/blacklist/add` | 封禁邮箱 |
+| `POST` | `/api/admin/blacklist/remove` | 解除邮箱封禁 |
 
 ### CSRF 保护
 
@@ -763,7 +763,7 @@ node scripts/delete-api-key.js <key_id> --remote
 | CSRF | 状态变更 API 校验 SameSite=Strict Cookie + 自定义 Header |
 | Session 劫持 | Token SHA-256 哈希存储，30 天过期，退出登录即时销毁 |
 | 验证码爆破 | 5 次错误锁定，10 分钟过期，发送频率限制 1 分钟 |
-| 邮箱滥用 | blacklisted_emails 黑名单机制 |
+| 邮箱滥用 | blacklisted_emails 封禁机制 |
 | XSS | 安全响应头（CSP、X-XSS-Protection、X-Content-Type-Options） |
 | Clickjacking | `X-Frame-Options: DENY` |
 | 信息泄露 | 错误响应统一格式，不暴露内部细节 |
@@ -839,7 +839,7 @@ npx vitest run test/index.spec.js
 | `0.3-beta` | 2026-07 | 鉴权切换到 D1 持久化，SHA-256 哈希存储，请求日志表 |
 | `0.4-beta` | 2026-07 | 请求额度控制（request_limit/429），Key 启用/禁用，管理脚本 |
 | `0.5-beta` | 2026-07 | 管理后台 WebUI + API，域名隔离路由，CSRF 保护，Cloudflare Access |
-| `0.6-beta` | 2026-07 | SaaS 用户体系（邮箱验证码登录 + Session Token + 双鉴权中间件）、三级会员计划（日请求/月 Token 额度）、流式 SSE 响应（含 tee 分叉用量提取）、usage_records 用量追踪、用户管理（角色/会员 CRUD）、邮箱黑名单、管理员操作日志、limit_type 按次数/Token 限额切换、X-API-Key header 鉴权 |
+| `0.6-beta` | 2026-07 | SaaS 用户体系（邮箱验证码登录 + Session Token + 双鉴权中间件）、三级会员计划（日请求/月 Token 额度）、流式 SSE 响应（含 tee 分叉用量提取）、usage_records 用量追踪、用户管理（角色/会员 CRUD）、封禁用户、管理员操作日志、limit_type 按次数/Token 限额切换、X-API-Key header 鉴权 |
 
 ---
 

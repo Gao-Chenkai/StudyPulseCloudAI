@@ -64,7 +64,7 @@ function getAdminHtml(csrfToken, hasCfAccess) {
       <button class="tab active" data-tab="dashboard"><span class="nav-icon">⌂</span><span>仪表盘</span></button>
       <button class="tab" data-tab="keys"><span class="nav-icon">⌁</span><span>Key 管理</span></button>
       <button class="tab" data-tab="users"><span class="nav-icon">◎</span><span>用户管理</span></button>
-      <button class="tab" data-tab="blacklist"><span class="nav-icon">⊘</span><span>黑名单</span></button>
+      <button class="tab" data-tab="blacklist"><span class="nav-icon">⊘</span><span>封禁用户</span></button>
       <button class="tab" data-tab="logs"><span class="nav-icon">≡</span><span>请求日志</span></button>
     </nav>
     <div class="sidebar-footer">
@@ -157,15 +157,15 @@ function getAdminHtml(csrfToken, hasCfAccess) {
   </section>
 
   <section id="tab-blacklist" class="tab-content">
-    <div class="page-heading"><div><h2>黑名单</h2><p>阻止指定邮箱访问服务，并保留操作原因。</p></div></div>
+    <div class="page-heading"><div><h2>封禁用户</h2><p>阻止指定邮箱访问服务，并保留封禁原因。</p></div></div>
     <div class="toolbar filter-toolbar">
       <input type="email" id="blacklistEmail" class="input-sm" placeholder="输入邮箱地址..." style="width:280px">
-      <input type="text" id="blacklistReason" class="input-sm" placeholder="拉黑原因（可选）" style="width:200px">
-      <button class="btn btn-danger" onclick="addBlacklist()">拉黑</button>
+      <input type="text" id="blacklistReason" class="input-sm" placeholder="封禁原因（可选）" style="width:200px">
+      <button class="btn btn-danger" onclick="addBlacklist()">封禁</button>
       <button class="btn btn-outline" onclick="loadBlacklist()">刷新</button>
     </div>
     <div id="blacklistTableContainer" class="table-container">
-      <p class="empty-state">点击刷新加载黑名单</p>
+      <p class="empty-state">点击刷新加载封禁用户</p>
     </div>
   </section>
 
@@ -501,7 +501,7 @@ async function apiJson(method, path, body) {
 function switchTab(name) {
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
   document.querySelectorAll(".tab-content").forEach(c => c.classList.toggle("active", c.id === "tab-" + name));
-  const titles = { dashboard: "仪表盘", keys: "Key 管理", users: "用户管理", blacklist: "黑名单", logs: "请求日志" };
+  const titles = { dashboard: "仪表盘", keys: "Key 管理", users: "用户管理", blacklist: "封禁用户", logs: "请求日志" };
   const title = document.getElementById("pageTitle");
   if (title) title.textContent = titles[name] || "管理后台";
   const sidebar = document.getElementById("sidebar");
@@ -1042,7 +1042,7 @@ async function loadBlacklist() {
   try {
     const { data } = await apiJson("GET", "/api/admin/blacklist");
     if (data.length === 0) {
-      container.innerHTML = '<p class="empty-state">黑名单为空</p>';
+      container.innerHTML = '<p class="empty-state">暂无封禁用户</p>';
       return;
     }
     container.innerHTML = renderBlacklistTable(data);
@@ -1058,7 +1058,7 @@ function renderBlacklistTable(list) {
       '<td>' + escapeHtml(item.reason || '-') + '</td>' +
       '<td>' + formatDate(item.created_at) + '</td>' +
       '<td class="actions-cell">' +
-        '<button class="btn btn-sm btn-danger" onclick="confirmRemoveBlacklist(\\'' + escapeHtml(item.email) + '\\')">移出黑名单</button>' +
+        '<button class="btn btn-sm btn-danger" onclick="confirmRemoveBlacklist(\\'' + escapeHtml(item.email) + '\\')">解除封禁</button>' +
       '</td>' +
     '</tr>';
   }).join("");
@@ -1078,19 +1078,19 @@ async function addBlacklist() {
     document.getElementById("blacklistEmail").value = "";
     document.getElementById("blacklistReason").value = "";
     loadBlacklist();
-    showToast("已拉黑: " + email, "success");
+    showToast("已封禁: " + email, "success");
   } catch (e) {
-    showToast("拉黑失败: " + e.message, "error");
+    showToast("封禁失败: " + e.message, "error");
   }
 }
 
 function confirmRemoveBlacklist(email) {
-  showConfirm("移出黑名单", '确定要将 "' + email + '" 从黑名单中移除吗？', async () => {
+  showConfirm("解除封禁", '确定要解除对 "' + email + '" 的封禁吗？', async () => {
     try {
       await apiJson("POST", "/api/admin/blacklist/remove", { email: email });
       closeModal("modal-confirm");
       loadBlacklist();
-      showToast("已移出黑名单", "success");
+      showToast("已解除封禁", "success");
     } catch (e) {
       showToast("操作失败: " + e.message, "error");
     }

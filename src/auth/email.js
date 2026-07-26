@@ -34,9 +34,9 @@ export async function sendVerificationCode(rawEmail, env, purpose = "login") {
 		return { success: false, error: "Invalid verification purpose" };
 	}
 
-	// 1.5 检查邮箱是否在黑名单中
+	// 1.5 检查邮箱是否已被封禁
 	if (await isEmailBlacklisted(email, env)) {
-		return { success: false, error: "Email is blacklisted" };
+		return { success: false, error: "Email is banned" };
 	}
 
 	// 2. 1 分钟内不可重复发送

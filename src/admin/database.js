@@ -55,11 +55,11 @@ export async function getDashboardStats(env) {
 export { createApiKey } from "../database/api_keys.js";
 
 // ────────────────────────────────────────────────────────────────────────────
-// 邮箱黑名单
+// 用户封禁（底层表名保留 blacklisted_emails 以兼容现有数据）
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
- * 检查邮箱是否在黑名单中。
+ * 检查邮箱是否已被封禁。
  * @param {string} email
  * @param {{ StudyPulseDB: D1Database }} env
  * @returns {Promise<boolean>}
@@ -79,7 +79,7 @@ export async function isEmailBlacklisted(email, env) {
 }
 
 /**
- * 添加邮箱到黑名单。
+ * 封禁邮箱。
  * @param {string} email
  * @param {string} [reason]
  * @param {{ StudyPulseDB: D1Database }} env
@@ -99,7 +99,7 @@ export async function blacklistEmail(email, reason, env) {
 			.run();
 		return { success: true };
 	} catch (err) {
-		// UNIQUE constraint violation = 已在黑名单中
+			// UNIQUE constraint violation = 已被封禁
 		if (err?.message?.includes("UNIQUE")) {
 			return { success: false, error: "Email already blacklisted" };
 		}
@@ -108,7 +108,7 @@ export async function blacklistEmail(email, reason, env) {
 }
 
 /**
- * 从黑名单移除邮箱。
+ * 解除邮箱封禁。
  * @param {string} email
  * @param {{ StudyPulseDB: D1Database }} env
  * @returns {Promise<boolean>}
@@ -123,7 +123,7 @@ export async function removeBlacklistedEmail(email, env) {
 }
 
 /**
- * 列出所有黑名单邮箱。
+ * 列出所有已封禁邮箱。
  * @param {{ StudyPulseDB: D1Database }} env
  * @returns {Promise<Array>}
  */
