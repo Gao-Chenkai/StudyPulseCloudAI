@@ -25,7 +25,7 @@ import { writeRequestLog } from "./admin/database.js";
 import { authenticateRequest } from "./auth/middleware.js";
 import { sendVerificationCode, verifyCode } from "./auth/email.js";
 import { createSession, destroySession } from "./auth/session.js";
-import { handleGitHubCallback, handleGitHubStart } from "./auth/oauth.js";
+import { handleGitHubBindSendCode, handleGitHubBindVerify, handleGitHubCallback, handleGitHubStart, renderGitHubBindPage } from "./auth/oauth.js";
 import { renderLoginPage } from "./auth/login-page-app.js";
 import { checkUserQuota, getMembershipPlan, recordUsage } from "./membership/membership.js";
 import { getUserById } from "./users/users.js";
@@ -44,6 +44,7 @@ import {
 	handlePasswordLogin,
 	handlePasswordReset,
 	handlePasswordResetRequest,
+	handlePasswordSetupAfterCode,
 	handleRegisterVerify,
 	handleLogoutCurrent,
 	handleLogoutAll,
@@ -202,6 +203,8 @@ function handlePublicApi(request, env, ctx, pathname, method) {
 	if (pathname === "/auth/send-code" && method === "POST") return handleAuthSendCode(request, env);
 	if (pathname === "/auth/login/password" && method === "POST") return handlePasswordLogin(request, env);
 	if (pathname === "/auth/login/code" && method === "POST") return handleCodeLogin(request, env);
+	if (pathname === "/auth/password/set-after-code" && method === "POST") return handlePasswordSetupAfterCode(request, env);
+	if (pathname === "/v1/auth/password/set-after-code" && method === "POST") return handlePasswordSetupAfterCode(request, env);
 	if (pathname === "/auth/refresh" && method === "POST") return handleRefresh(request, env);
 	if (pathname === "/v1/auth/login" && method === "POST") {
 		return handlePasswordLogin(request, env);
@@ -246,9 +249,13 @@ async function handleAuthCenter(request, env, pathname, method) {
 	if ((pathname === "/" || pathname === "/login") && method === "GET") return renderLoginPage();
 	if (pathname === "/oauth/github/start" && method === "GET") return handleGitHubStart(request, env);
 	if (pathname === "/oauth/github/callback" && method === "GET") return handleGitHubCallback(request, env);
+	if (pathname === "/oauth/github/bind" && method === "GET") return renderGitHubBindPage(request);
+	if (pathname === "/oauth/github/bind/send-code" && method === "POST") return handleGitHubBindSendCode(request, env);
+	if (pathname === "/oauth/github/bind/verify" && method === "POST") return handleGitHubBindVerify(request, env);
 	if (pathname === "/auth/send-code" && method === "POST") return handleAuthSendCode(request, env);
 	if (pathname === "/auth/login/password" && method === "POST") return handlePasswordLogin(request, env);
 	if (pathname === "/auth/login/code" && method === "POST") return handleCodeLogin(request, env);
+	if (pathname === "/auth/password/set-after-code" && method === "POST") return handlePasswordSetupAfterCode(request, env);
 	if (pathname === "/auth/refresh" && method === "POST") return handleRefresh(request, env);
 	return Response.json({ error: "Not Found" }, { status: 404 });
 }

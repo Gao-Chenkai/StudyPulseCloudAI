@@ -23,7 +23,7 @@ import { sha256Hex } from "../auth.js";
  * @param {{ StudyPulseDB: D1Database, RESEND_API_KEY?: string }} env
  * @returns {Promise<{success: boolean, error?: string}>}
  */
-export const VERIFICATION_PURPOSES = new Set(["register", "login", "reset_password", "change_email"]);
+export const VERIFICATION_PURPOSES = new Set(["register", "login", "reset_password", "change_email", "github_bind"]);
 
 export async function sendVerificationCode(rawEmail, env, purpose = "login") {
 	// 1. 校验邮箱格式（简单正则）

@@ -26,6 +26,7 @@ import {
 	resetLoginRateLimits,
 } from "../security/rateLimit.js";
 import { sha256Hex } from "../auth.js";
+import { consumeAuthChallenge, createAuthChallenge, getAuthChallenge } from "./challenges.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const GENERIC_RESET_MESSAGE = "如果该邮箱已注册，我们已经发送验证码";
@@ -333,8 +334,47 @@ export async function handleCodeLogin(request, env) {
 	await env.StudyPulseDB.prepare(
 		"UPDATE users SET email_verified = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
 	).bind(user.id).run();
+	const credential = await getCredentialByUserId(user.id, env);
+	if (!credential) {
+		const setupToken = await createAuthChallenge(env, {
+			kind: "password_setup",
+			userId: user.id,
+			email,
+		});
+		return ok({
+			requires_password_setup: true,
+			setup_token: setupToken,
+			user: { id: user.id, email },
+		});
+	}
 	const session = await createSessionWithMetadata(user.id, env, await sessionMetadata(request, parsed.body?.device_name));
 	return ok(sessionPayload(session, { ...user, email }));
+}
+
+export async function handlePasswordSetupAfterCode(request, env) {
+	const parsed = await readJson(request);
+	if (parsed.error) return parsed.error;
+	const passwordError = validatePasswordInput(parsed.body?.password);
+	if (passwordError) return passwordError;
+	const challenge = await getAuthChallenge(parsed.body?.setup_token, env, "password_setup");
+	if (!challenge) return fail("AUTH_CHALLENGE_EXPIRED", "设置密码链接已失效，请重新使用验证码登录", 401);
+	const user = await getUserById(challenge.user_id, env);
+	if (!user) return fail("AUTH_CHALLENGE_EXPIRED", "设置密码链接已失效，请重新使用验证码登录", 401);
+	if (await getCredentialByUserId(user.id, env)) {
+		return fail("PASSWORD_ALREADY_SET", "该账号已设置密码，请直接登录", 409);
+	}
+	if (!(await consumeAuthChallenge(challenge.id, env))) {
+		return fail("AUTH_CHALLENGE_EXPIRED", "设置密码链接已失效，请重新使用验证码登录", 401);
+	}
+	await savePassword(user.id, parsed.body.password, env, {
+		cost: Number(env.PASSWORD_BCRYPT_COST || DEFAULT_PASSWORD_COST),
+	});
+	const session = await createSessionWithMetadata(
+		user.id,
+		env,
+		await sessionMetadata(request, parsed.body?.device_name),
+	);
+	return ok(sessionPayload(session, user));
 }
 
 export async function handleRefresh(request, env) {
