@@ -906,7 +906,7 @@ async function showUserDetail(userId) {
       '</div>' +
       '<button class="btn btn-primary" style="margin-top:12px" onclick="showUserKeyModal(\\'' + userId + '\\')">+ 为新 Key</button>' +
       (user.status === "banned" ? '<span class="status-badge status-disabled" style="margin:12px 0 0 8px">已封禁</span>' : '<button class="btn btn-sm btn-danger" style="margin:12px 0 0 8px" onclick="banUser(\\'' + userId + '\\')">封禁账号</button>') +
-      (user.role !== "admin" ? '<button class="btn btn-sm btn-danger" style="margin:12px 0 0 8px" onclick="deleteUser(\\'' + userId + '\\', ' + JSON.stringify(user.email) + ')">删除账户</button>' : '') +
+      (user.role !== "admin" ? '<button class="btn btn-sm btn-danger" style="margin:12px 0 0 8px" data-email="' + escapeHtml(user.email) + '" onclick="deleteUser(\\'' + userId + '\\', this.dataset.email)">删除账户</button>' : '') +
       keysHtml +
       '<div class="user-sessions">' + sessionsHtml + '</div>' +
       '<style>.user-info-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; } .user-info-grid p { color: var(--text); margin-top: 4px; } .user-sessions { margin-top: 20px; } .detail-section-heading { display:flex; justify-content:space-between; align-items:center; margin: 18px 0 8px; font-weight: 600; }</style>';
