@@ -242,7 +242,7 @@ function handlePublicApi(request, env, ctx, pathname, method) {
 }
 
 async function handleAuthCenter(request, env, pathname, method) {
-	if (pathname === "/login" && method === "GET") return renderLoginPage();
+	if ((pathname === "/" || pathname === "/login") && method === "GET") return renderLoginPage();
 	if (pathname === "/oauth/github/start" && method === "GET") return handleGitHubStart(request, env);
 	if (pathname === "/oauth/github/callback" && method === "GET") return handleGitHubCallback(request, env);
 	if (pathname === "/auth/send-code" && method === "POST") return handleAuthSendCode(request, env);
