@@ -60,6 +60,8 @@ export async function reviewAppeal(appealId, decision, reply, env) {
 	if (status === "approved") {
 		await env.StudyPulseDB.prepare("UPDATE users SET status='active', updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(appeal.user_id).run();
 		await env.StudyPulseDB.prepare("UPDATE bans SET status='cancelled' WHERE id=?").bind(appeal.ban_id).run();
+		// blacklist API 使用的旧兼容表也必须同步清理，否则管理后台仍会显示该账号被封禁。
+		await env.StudyPulseDB.prepare("DELETE FROM blacklisted_emails WHERE email = (SELECT email FROM users WHERE id = ?)").bind(appeal.user_id).run();
 	}
 	const email = await sendTransactionalEmail({ to: appeal.email, subject: `[StudyPulse Cloud AI] 申诉审核结果：${status === "approved" ? "通过" : "拒绝"}`, html: appealResultEmail({ approved: status === "approved", reply }) }, env);
 	return { success: true, status, emailSent: email.success, emailError: email.success ? null : email.error };

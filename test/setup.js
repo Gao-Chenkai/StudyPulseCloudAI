@@ -22,6 +22,7 @@ import migration8Sql from "../migrations/0008_alter_request_logs.sql?raw";
 import migration9Sql from "../migrations/0009_create_usage_records.sql?raw";
 import migration10Sql from "../migrations/0010_create_admin_logs.sql?raw";
 import migration11Sql from "../migrations/0011_seed_membership_plans.sql?raw";
+import migration12Sql from "../migrations/0012_create_blacklisted_emails.sql?raw";
 import migration13Sql from "../migrations/0013_make_api_key_id_nullable.sql?raw";
 import migration14Sql from "../migrations/0014_add_password_auth.sql?raw";
 import migration15Sql from "../migrations/0015_create_bans_and_appeals.sql?raw";
@@ -38,6 +39,7 @@ const allMigrations = [
 	migration9Sql,  // 0009: usage_records
 	migration10Sql, // 0010: admin_logs
 	migration11Sql, // 0011: seed membership_plans
+	migration12Sql, // 0012: blacklisted_emails compatibility table
 	migration13Sql, // 0013: nullable request_logs.api_key_id
 	migration14Sql, // 0014: password auth, normalized email, revocation, rate limits
 	migration15Sql, // 0015: bans and appeals

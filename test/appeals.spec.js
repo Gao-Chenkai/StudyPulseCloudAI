@@ -10,6 +10,7 @@ describe("account bans and appeals", () => {
 		const banResponse = await SELF.fetch("http://localhost/api/admin/bans/create", { method: "POST", headers, body: JSON.stringify({ user_id: userId, reason: "测试原因" }) });
 		expect(banResponse.status).toBe(200);
 		const ban = await banResponse.json();
+		await env.StudyPulseDB.prepare("INSERT INTO blacklisted_emails (email, reason) VALUES (?, ?)").bind(`${userId}@example.com`, "测试原因").run();
 		expect(ban.data.appealToken).toMatch(/^BAN_[0-9a-f]{64}$/);
 		const page = await SELF.fetch(`https://support.chenkai.space/appeal/${ban.data.appealToken}`);
 		expect(page.status).toBe(200);
@@ -24,6 +25,8 @@ describe("account bans and appeals", () => {
 		expect(review.status).toBe(200);
 		const user = await env.StudyPulseDB.prepare("SELECT status FROM users WHERE id=?").bind(userId).first();
 		expect(user.status).toBe("active");
+		const blacklist = await env.StudyPulseDB.prepare("SELECT email FROM blacklisted_emails WHERE email=?").bind(`${userId}@example.com`).first();
+		expect(blacklist).toBeNull();
 	});
 
 	it("accepts a short but non-empty appeal and trims request fields", async () => {
