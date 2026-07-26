@@ -30,6 +30,10 @@
 		{
 			"pattern": "admin.chenkai.space",
 			"custom_domain": true
+		},
+		{
+			"pattern": "support.chenkai.space",
+			"custom_domain": true
 		}
 	]
 	/**

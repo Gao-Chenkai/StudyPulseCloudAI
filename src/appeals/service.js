@@ -1,6 +1,6 @@
 import { banNotificationEmail, appealResultEmail } from "../email/templates.js";
 
-const APPEAL_ORIGIN = "https://admin.chenkai.space";
+const APPEAL_ORIGIN = "https://support.chenkai.space";
 
 function token() {
 	const bytes = new Uint8Array(32);

@@ -3,6 +3,7 @@
  *
  * v0.6：SaaS 用户体系 + 双鉴权
  *   - admin.chenkai.space  → 管理后台（WebUI + API）
+ *   - support.chenkai.space → 账号封禁申诉页面与 API
  *   - spapi.chenkai.space  → 公开 AI API（健康检查 + auth + /v1/chat）
  *   - localhost（开发）     → 路径路由（兼容旧行为，全部可访问）
  *
@@ -48,6 +49,7 @@ const SERVICE_META = {
 // 生产环境自定义域名
 const SPAPI_HOSTNAME = "spapi.chenkai.space";
 const ADMIN_HOSTNAME = "admin.chenkai.space";
+const SUPPORT_HOSTNAME = "support.chenkai.space";
 
 /**
  * Worker 默认导出（Cloudflare Workers 标准格式）
@@ -67,6 +69,11 @@ export default {
 				return await handleAdmin(request, env, ctx, pathname, method);
 			}
 
+			// ── 申诉子域名：仅 support.chenkai.space ──
+			if (hostname === SUPPORT_HOSTNAME) {
+				return await handleSupport(request, env, pathname, method);
+			}
+
 			// ── 公开 API 子域名：仅 spapi.chenkai.space ──
 			if (hostname === SPAPI_HOSTNAME) {
 				return await handlePublicApi(request, env, ctx, pathname, method);
@@ -84,6 +91,9 @@ export default {
 					pathname.startsWith("/appeal/")
 				) {
 					return await handleAdmin(request, env, ctx, pathname, method);
+				}
+				if (pathname === "/api/appeals" && method === "POST") {
+					return await handleSupport(request, env, pathname, method);
 				}
 				return await handlePublicApi(request, env, ctx, pathname, method);
 			}
@@ -110,7 +120,6 @@ function handleAdmin(request, env, ctx, pathname, method) {
 	if (pathname.startsWith("/appeal/") && method === "GET") {
 		return handleAppealPage(request, env, pathname.slice("/appeal/".length));
 	}
-	if (pathname === "/api/appeals" && method === "POST") return handleSubmitAppeal(request, env);
 	// 管理后台 WebUI
 	if ((pathname === "/admin" || pathname === "/admin/") && method === "GET") {
 		return serveAdminPage(request, env);
@@ -125,11 +134,22 @@ function handleAdmin(request, env, ctx, pathname, method) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// 申诉路由（仅 support.chenkai.space 可访问）
+// ────────────────────────────────────────────────────────────────────────────
+
+function handleSupport(request, env, pathname, method) {
+	if (pathname.startsWith("/appeal/") && method === "GET") {
+		return handleAppealPage(request, env, pathname.slice("/appeal/".length));
+	}
+	if (pathname === "/api/appeals" && method === "POST") return handleSubmitAppeal(request, env);
+	return Response.json({ error: "Not Found" }, { status: 404 });
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // 公开 API 路由（仅 spapi.chenkai.space 可访问）
 // ────────────────────────────────────────────────────────────────────────────
 
 function handlePublicApi(request, env, ctx, pathname, method) {
-	if (pathname === "/api/appeals" && method === "POST") return handleSubmitAppeal(request, env);
 	// 健康检查
 	if (pathname === "/" && method === "GET") {
 		return handleHealth();

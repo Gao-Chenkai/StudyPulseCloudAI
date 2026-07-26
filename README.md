@@ -338,12 +338,13 @@ node scripts/create-api-key.js "iOS Beta 001" --remote
 
 ### 4. 配置自定义域名
 
-在 Cloudflare Dashboard 中为 Worker 绑定两个自定义域名：
+在 Cloudflare Dashboard 中为 Worker 绑定三个自定义域名：
 
 | 域名 | 用途 | DNS 记录类型 |
 |------|------|-------------|
 | `spapi.chenkai.space` | 公开 AI API | CNAME → Worker `*.workers.dev` |
 | `admin.chenkai.space` | 管理后台 | CNAME → Worker `*.workers.dev` |
+| `support.chenkai.space` | 封禁账号申诉页面与 API | CNAME → Worker `*.workers.dev` |
 
 ### 5. （可选）配置 Cloudflare Access
 
@@ -496,6 +497,7 @@ data: [DONE]
 | 域名 | 路径 | 说明 |
 |------|------|------|
 | `admin.chenkai.space` | `/admin` | 生产环境 |
+| `support.chenkai.space` | `/appeal/:token` | 封禁账号申诉 |
 | `localhost:8787` | `/admin` | 本地开发（路径路由兼容） |
 
 ### 认证方式

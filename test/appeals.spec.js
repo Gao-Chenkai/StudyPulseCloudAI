@@ -11,10 +11,10 @@ describe("account bans and appeals", () => {
 		expect(banResponse.status).toBe(200);
 		const ban = await banResponse.json();
 		expect(ban.data.appealToken).toMatch(/^BAN_[0-9a-f]{64}$/);
-		const page = await SELF.fetch(`http://localhost/appeal/${ban.data.appealToken}`);
+		const page = await SELF.fetch(`https://support.chenkai.space/appeal/${ban.data.appealToken}`);
 		expect(page.status).toBe(200);
 		expect(await page.text()).toContain("账号封禁申诉");
-		const submit = await SELF.fetch("http://localhost/api/appeals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: ban.data.appealToken, content: "我认为这是误判，请重新审核我的账号。" }) });
+		const submit = await SELF.fetch("https://support.chenkai.space/api/appeals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: ban.data.appealToken, content: "我认为这是误判，请重新审核我的账号。" }) });
 		expect(submit.status).toBe(201);
 		const appeals = await SELF.fetch("http://localhost/api/admin/appeals", { headers });
 		const list = await appeals.json();
