@@ -18,9 +18,14 @@ function redirect(url, status = 302, headers = {}) {
 }
 
 function safeReturnTo(value) {
-	return typeof value === "string" && /^studypulse:\/\/auth\/callback(?:\?.*)?$/.test(value)
-		? value
-		: "studypulse://auth/callback";
+	if (typeof value === "string" && /^studypulse:\/\/auth\/callback(?:\?.*)?$/.test(value)) return value;
+	try {
+		const url = new URL(value);
+		if (url.protocol === "https:" && url.hostname === "dash.studypulse.chenkai.space") {
+			return url.pathname === "/" ? `${url.origin}/dashboard` : url.pathname.startsWith("/dashboard") ? value : "studypulse://auth/callback";
+		}
+	} catch { /* invalid return URL */ }
+	return "studypulse://auth/callback";
 }
 
 export function handleGitHubStart(request, env) {

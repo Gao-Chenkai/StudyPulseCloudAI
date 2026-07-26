@@ -9,9 +9,11 @@ function json(data, status = 200) {
 }
 
 function periodStarts(now = new Date()) {
-  const local = new Date(now.toLocaleString("en-US", { timeZone: TIME_ZONE }));
-  local.setHours(0, 0, 0, 0);
-  return { today: local.toISOString(), month: new Date(local.getFullYear(), local.getMonth(), 1).toISOString() };
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: TIME_ZONE, year: "numeric", month: "numeric", day: "numeric" }).formatToParts(now);
+  const values = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, Number(part.value)]));
+  const today = new Date(Date.UTC(values.year, values.month - 1, values.day) - 8 * 60 * 60 * 1000);
+  const month = new Date(Date.UTC(values.year, values.month - 1, 1) - 8 * 60 * 60 * 1000);
+  return { today: today.toISOString(), month: month.toISOString() };
 }
 
 function effectivePlan(user) {
