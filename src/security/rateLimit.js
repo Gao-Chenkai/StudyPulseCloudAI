@@ -1,10 +1,10 @@
 import { sha256Hex } from "../auth.js";
 
 export const LOGIN_EMAIL_LIMIT = 5;
-export const LOGIN_EMAIL_WINDOW_MS = 10 * 60_000;
+export const LOGIN_EMAIL_WINDOW_MS = 30_000;
 export const LOGIN_IP_EMAIL_LIMIT = 10;
 export const LOGIN_IP_LIMIT = 30;
-export const LOGIN_IP_WINDOW_MS = 10 * 60_000;
+export const LOGIN_IP_WINDOW_MS = 30_000;
 
 function nowIso() {
 	return new Date().toISOString();
