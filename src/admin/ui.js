@@ -65,6 +65,7 @@ function getAdminHtml(csrfToken, hasCfAccess) {
       <button class="tab" data-tab="keys"><span class="nav-icon">⌁</span><span>Key 管理</span></button>
       <button class="tab" data-tab="users"><span class="nav-icon">◎</span><span>用户管理</span></button>
       <button class="tab" data-tab="blacklist"><span class="nav-icon">⊘</span><span>封禁用户</span></button>
+      <button class="tab" data-tab="appeals"><span class="nav-icon">✉</span><span>申诉管理</span></button>
       <button class="tab" data-tab="logs"><span class="nav-icon">≡</span><span>请求日志</span></button>
     </nav>
     <div class="sidebar-footer">
@@ -167,6 +168,11 @@ function getAdminHtml(csrfToken, hasCfAccess) {
     <div id="blacklistTableContainer" class="table-container">
       <p class="empty-state">点击刷新加载封禁用户</p>
     </div>
+  </section>
+  <section id="tab-appeals" class="tab-content">
+    <div class="page-heading"><div><h2>申诉管理</h2><p>查看并处理用户的账号封禁申诉。</p></div></div>
+    <div class="toolbar"><button class="btn btn-outline" onclick="loadAppeals()">刷新工单</button><select id="appealStatusFilter" class="input-sm" onchange="loadAppeals()"><option value="">全部状态</option><option value="pending">待审核</option><option value="approved">已通过</option><option value="rejected">已拒绝</option></select></div>
+    <div id="appealsTableContainer" class="table-container"><p class="empty-state">点击刷新加载申诉工单</p></div>
   </section>
 
   <section id="tab-logs" class="tab-content">
@@ -501,7 +507,7 @@ async function apiJson(method, path, body) {
 function switchTab(name) {
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
   document.querySelectorAll(".tab-content").forEach(c => c.classList.toggle("active", c.id === "tab-" + name));
-  const titles = { dashboard: "仪表盘", keys: "Key 管理", users: "用户管理", blacklist: "封禁用户", logs: "请求日志" };
+  const titles = { dashboard: "仪表盘", keys: "Key 管理", users: "用户管理", blacklist: "封禁用户", appeals: "申诉管理", logs: "请求日志" };
   const title = document.getElementById("pageTitle");
   if (title) title.textContent = titles[name] || "管理后台";
   const sidebar = document.getElementById("sidebar");
@@ -510,6 +516,7 @@ function switchTab(name) {
   else if (name === "keys") loadKeys();
   else if (name === "users") loadUsers();
   else if (name === "blacklist") loadBlacklist();
+  else if (name === "appeals") loadAppeals();
 }
 
 function toggleSidebar() {
@@ -898,12 +905,19 @@ async function showUserDetail(userId) {
         '<div><strong>月Token</strong><p>' + (stats ? stats.monthlyTokens.toLocaleString() : "-") + '</p></div>' +
       '</div>' +
       '<button class="btn btn-primary" style="margin-top:12px" onclick="showUserKeyModal(\\'' + userId + '\\')">+ 为新 Key</button>' +
+      (user.status === "banned" ? '<span class="status-badge status-disabled" style="margin:12px 0 0 8px">已封禁</span>' : '<button class="btn btn-sm btn-danger" style="margin:12px 0 0 8px" onclick="banUser(\\'' + userId + '\\')">封禁账号</button>') +
       keysHtml +
       '<div class="user-sessions">' + sessionsHtml + '</div>' +
       '<style>.user-info-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; } .user-info-grid p { color: var(--text); margin-top: 4px; } .user-sessions { margin-top: 20px; } .detail-section-heading { display:flex; justify-content:space-between; align-items:center; margin: 18px 0 8px; font-weight: 600; }</style>';
   } catch (e) {
     document.getElementById("userDetailContent").innerHTML = '<p class="error-text">加载失败: ' + escapeHtml(e.message) + '</p>';
   }
+}
+
+async function banUser(userId) {
+  const reason = prompt("请输入封禁原因");
+  if (!reason || reason.trim().length < 3) return;
+  try { await apiJson("POST", "/api/admin/bans/create", { user_id: userId, reason: reason.trim() }); showToast("账号已封禁，通知邮件已进入发送流程", "success"); await showUserDetail(userId); } catch (e) { showToast("封禁失败: " + e.message, "error"); }
 }
 
 async function revokeUserSessions(userId) {
@@ -1049,6 +1063,24 @@ async function loadBlacklist() {
   } catch (e) {
     container.innerHTML = '<p class="empty-state error-text">加载失败: ' + escapeHtml(e.message) + '</p>';
   }
+}
+
+async function loadAppeals() {
+  const container = document.getElementById("appealsTableContainer");
+  if (!container) return;
+  container.innerHTML = '<p class="empty-state">加载中...</p>';
+  try {
+    const status = document.getElementById("appealStatusFilter").value;
+    const { data } = await apiJson("GET", "/api/admin/appeals" + (status ? "?status=" + encodeURIComponent(status) : ""));
+    if (!data.length) { container.innerHTML = '<p class="empty-state">暂无申诉工单</p>'; return; }
+    container.innerHTML = '<table><thead><tr><th>用户邮箱</th><th>封禁原因</th><th>申诉内容</th><th>提交时间</th><th>状态</th><th>操作</th></tr></thead><tbody>' + data.map(a => '<tr><td>' + escapeHtml(a.email) + '</td><td>' + escapeHtml(a.reason) + '</td><td style="white-space:normal;min-width:260px">' + escapeHtml(a.content) + '</td><td>' + formatDate(a.created_at) + '</td><td><span class="status-badge ' + (a.status === "pending" ? "status-exceeded" : a.status === "approved" ? "status-enabled" : "status-disabled") + '">' + escapeHtml(a.status) + '</span></td><td>' + (a.status === "pending" ? '<button class="btn btn-sm btn-primary" onclick="reviewAppeal(\\'' + a.id + '\\',\\'approved\\')">通过</button> <button class="btn btn-sm btn-danger" onclick="reviewAppeal(\\'' + a.id + '\\',\\'rejected\\')">拒绝</button>' : '-') + '</td></tr>').join("") + '</tbody></table>';
+  } catch (e) { container.innerHTML = '<p class="empty-state error-text">加载失败: ' + escapeHtml(e.message) + '</p>'; }
+}
+
+async function reviewAppeal(id, decision) {
+  const reply = prompt("审核回复（可选）", decision === "approved" ? "申诉已通过，账号访问权限已恢复。" : "经审核，账号封禁状态维持不变。");
+  if (reply === null) return;
+  try { await apiJson("POST", "/api/admin/appeals/review", { id, decision, admin_reply: reply }); showToast("工单已处理", "success"); loadAppeals(); } catch (e) { showToast("处理失败: " + e.message, "error"); }
 }
 
 function renderBlacklistTable(list) {

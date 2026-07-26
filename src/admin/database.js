@@ -367,7 +367,7 @@ export async function listUsers(env, filters = {}) {
 
 	const { results } = await env.StudyPulseDB.prepare(
 		`SELECT id, email, email_verified, role, membership_type,
-		        membership_expires_at, created_at
+		        membership_expires_at, status, created_at
 		   FROM users
 		   ${where}
 		  ORDER BY created_at DESC
@@ -385,7 +385,7 @@ export async function listUsers(env, filters = {}) {
 export async function getUserDetail(env, userId) {
 	const user = await env.StudyPulseDB.prepare(
 		`SELECT id, email, email_verified, role, membership_type,
-		        membership_expires_at, github_id, username, avatar_url,
+		        membership_expires_at, status, github_id, username, avatar_url,
 		        created_at, updated_at
 		   FROM users
 		  WHERE id = ?`,

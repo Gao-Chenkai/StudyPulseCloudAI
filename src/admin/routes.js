@@ -35,6 +35,7 @@ import {
 	removeBlacklistedEmail,
 	listBlacklistedEmails,
 } from "./database.js";
+import { createBan, reviewAppeal } from "../appeals/service.js";
 
 // ────────────────────────────────────────────────────────────────────────────
 // CSRF 保护
@@ -216,6 +217,15 @@ export async function handleAdminApi(request, env, pathname) {
 		case pathname === "/api/admin/users/revoke-sessions" && method === "POST":
 			return handleRevokeUserSessions(request, env);
 
+		case pathname === "/api/admin/bans/create" && method === "POST":
+			return handleCreateBan(request, env);
+
+		case pathname === "/api/admin/appeals" && method === "GET":
+			return handleListAppeals(request, env);
+
+		case pathname === "/api/admin/appeals/review" && method === "POST":
+			return handleReviewAppeal(request, env);
+
 		// GET /api/admin/blacklist
 		case pathname === "/api/admin/blacklist" && method === "GET":
 			return handleListBlacklist(env);
@@ -235,6 +245,34 @@ export async function handleAdminApi(request, env, pathname) {
 		console.error("[admin] Internal error:", err?.message || err);
 		return error("Internal server error", 500);
 	}
+}
+
+async function handleCreateBan(request, env) {
+	let body;
+	try { body = await request.json(); } catch { return error("Invalid JSON body", 400); }
+	if (!body?.user_id || typeof body.user_id !== "string") return error("user_id is required", 400);
+	if (!body.reason || typeof body.reason !== "string" || body.reason.trim().length < 3) return error("reason is required", 400);
+	const result = await createBan(body.user_id, body.reason.trim().slice(0, 1000), env);
+	if (!result.success) return error(result.error, 404);
+	writeAdminLog(env, { admin_user_id: "admin_system", action: "ban_user", target_user_id: body.user_id, details: JSON.stringify({ reason: body.reason, ban_id: result.banId }) }).catch(() => {});
+	return json({ success: true, data: result });
+}
+
+async function handleListAppeals(request, env) {
+	const status = new URL(request.url).searchParams.get("status") || "";
+	const where = status ? "WHERE a.status = ?" : "";
+	const result = await env.StudyPulseDB.prepare(`SELECT a.id,a.ban_id,a.user_id,a.content,a.status,a.created_at,a.reviewed_at,a.admin_reply,b.reason,u.email FROM appeals a JOIN bans b ON b.id=a.ban_id JOIN users u ON u.id=a.user_id ${where} ORDER BY a.created_at DESC LIMIT 200`).bind(...(status ? [status] : [])).all();
+	return json({ success: true, data: result.results });
+}
+
+async function handleReviewAppeal(request, env) {
+	let body;
+	try { body = await request.json(); } catch { return error("Invalid JSON body", 400); }
+	if (!body?.id || !["approved", "rejected"].includes(body.decision)) return error("id and decision are required", 400);
+	const result = await reviewAppeal(body.id, body.decision, body.admin_reply || "", env);
+	if (!result.success) return error(result.error, result.status || 400);
+	writeAdminLog(env, { admin_user_id: "admin_system", action: `appeal_${body.decision}`, details: JSON.stringify({ appeal_id: body.id }) }).catch(() => {});
+	return json({ success: true, data: result });
 }
 
 // ────────────────────────────────────────────────────────────────────────────

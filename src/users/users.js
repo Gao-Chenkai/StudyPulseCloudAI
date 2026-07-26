@@ -18,7 +18,7 @@
 export async function getUserById(userId, env) {
 	return env.StudyPulseDB.prepare(
 		`SELECT id, email, email_verified, role, membership_type,
-		        membership_expires_at, github_id, username, avatar_url,
+		        membership_expires_at, status, github_id, username, avatar_url,
 		        created_at, updated_at
 		   FROM users
 		  WHERE id = ?`,
@@ -36,7 +36,7 @@ export async function getUserById(userId, env) {
 export async function getUserByEmail(email, env) {
 	return env.StudyPulseDB.prepare(
 		`SELECT id, email, email_verified, role, membership_type,
-		        membership_expires_at, github_id, username, avatar_url,
+		        membership_expires_at, status, github_id, username, avatar_url,
 		        created_at, updated_at
 		   FROM users
 		  WHERE email_normalized = ?`,

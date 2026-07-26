@@ -167,10 +167,11 @@ export async function verifyCode(rawEmail, code, env, purpose = "login") {
 	// Login codes retain the original behavior: verify the email and create the
 	// same user identity when it does not exist yet.
 	const existingUser = await env.StudyPulseDB.prepare(
-		"SELECT id, email_verified FROM users WHERE email_normalized = ?",
+		"SELECT id, email_verified, status FROM users WHERE email_normalized = ?",
 	).bind(consumed.email).first();
 
 	if (existingUser) {
+		if (existingUser.status === "banned") return { success: false, error: "Email is banned" };
 		if (existingUser.email_verified !== 1) {
 			await env.StudyPulseDB.prepare(
 				"UPDATE users SET email_verified = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",

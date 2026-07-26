@@ -26,6 +26,7 @@ import { sendVerificationCode, verifyCode } from "./auth/email.js";
 import { createSession, destroySession } from "./auth/session.js";
 import { checkUserQuota, getMembershipPlan, recordUsage } from "./membership/membership.js";
 import { getUserById } from "./users/users.js";
+import { handleAppealPage, handleSubmitAppeal } from "./appeals/routes.js";
 import {
 	handleAuthSendCode,
 	handlePasswordChange,
@@ -79,7 +80,8 @@ export default {
 			) {
 				if (
 					pathname.startsWith("/api/admin/") ||
-					pathname.startsWith("/admin")
+					pathname.startsWith("/admin") ||
+					pathname.startsWith("/appeal/")
 				) {
 					return await handleAdmin(request, env, ctx, pathname, method);
 				}
@@ -105,6 +107,10 @@ export default {
 // ────────────────────────────────────────────────────────────────────────────
 
 function handleAdmin(request, env, ctx, pathname, method) {
+	if (pathname.startsWith("/appeal/") && method === "GET") {
+		return handleAppealPage(request, env, pathname.slice("/appeal/".length));
+	}
+	if (pathname === "/api/appeals" && method === "POST") return handleSubmitAppeal(request, env);
 	// 管理后台 WebUI
 	if ((pathname === "/admin" || pathname === "/admin/") && method === "GET") {
 		return serveAdminPage(request, env);
@@ -123,6 +129,7 @@ function handleAdmin(request, env, ctx, pathname, method) {
 // ────────────────────────────────────────────────────────────────────────────
 
 function handlePublicApi(request, env, ctx, pathname, method) {
+	if (pathname === "/api/appeals" && method === "POST") return handleSubmitAppeal(request, env);
 	// 健康检查
 	if (pathname === "/" && method === "GET") {
 		return handleHealth();
@@ -303,6 +310,7 @@ async function handleUserProfile(request, env) {
 	if (!user) {
 		return Response.json({ error: "User not found" }, { status: 404 });
 	}
+	if (user.status === "banned") return Response.json({ error: "Account banned" }, { status: 403 });
 
 	// 计算有效会员等级（考虑过期降级）
 	let effectivePlan = user.membership_type;
@@ -375,6 +383,10 @@ async function handleChat(request, env, ctx) {
 		return auth.response;
 	}
 	const { userId, apiKeyId } = auth;
+	if (userId) {
+		const account = await getUserById(userId, env);
+		if (account?.status === "banned") return Response.json({ error: "Account banned" }, { status: 403 });
+	}
 
 	// 2. 校验 Worker Secret 是否已注入
 	if (!env || !env.MINIMAX_API_KEY) {

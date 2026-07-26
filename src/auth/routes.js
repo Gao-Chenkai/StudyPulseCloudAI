@@ -147,6 +147,7 @@ export async function handlePasswordLogin(request, env) {
 		await savePassword(credential.user_id, parsed.body.password, env, { iterations: configuredIterations });
 	}
 	const user = await getUserById(credential.user_id, env);
+	if (user?.status === "banned") return fail("ACCOUNT_BANNED", "账号已被暂停，请通过申诉链接提交申诉", 403);
 	const session = await createSessionWithMetadata(
 		credential.user_id,
 		env,
