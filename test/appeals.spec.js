@@ -25,4 +25,13 @@ describe("account bans and appeals", () => {
 		const user = await env.StudyPulseDB.prepare("SELECT status FROM users WHERE id=?").bind(userId).first();
 		expect(user.status).toBe("active");
 	});
+
+	it("accepts a short but non-empty appeal and trims request fields", async () => {
+		const userId = crypto.randomUUID();
+		await env.StudyPulseDB.prepare("INSERT INTO users (id,email,email_normalized,email_verified) VALUES (?,?,?,1)").bind(userId, `${userId}@example.com`, `${userId}@example.com`).run();
+		const banResponse = await SELF.fetch("http://localhost/api/admin/bans/create", { method: "POST", headers, body: JSON.stringify({ user_id: userId, reason: "测试原因" }) });
+		const ban = await banResponse.json();
+		const submit = await SELF.fetch("http://localhost/api/appeals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: `  ${ban.data.appealToken}  `, content: "  误判  " }) });
+		expect(submit.status).toBe(201);
+	});
 });

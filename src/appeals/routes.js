@@ -12,7 +12,10 @@ export async function handleAppealPage(request, env, token) {
 export async function handleSubmitAppeal(request, env) {
 	let body;
 	try { body = await request.json(); } catch { return Response.json({ error: "Invalid JSON body" }, { status: 400 }); }
-	if (typeof body?.token !== "string" || typeof body?.content !== "string" || body.content.trim().length < 10) return Response.json({ error: "token and content are required" }, { status: 400 });
-	const result = await submitAppeal(body.token, body.content, env);
+	const token = typeof body?.token === "string" ? body.token.trim() : "";
+	const content = typeof body?.content === "string" ? body.content.trim() : "";
+	if (!token) return Response.json({ error: "申诉链接无效：缺少 token" }, { status: 400 });
+	if (!content) return Response.json({ error: "请输入申诉说明" }, { status: 400 });
+	const result = await submitAppeal(token, content, env);
 	return Response.json(result.success ? result : { error: result.error }, { status: result.success ? 201 : result.status });
 }
