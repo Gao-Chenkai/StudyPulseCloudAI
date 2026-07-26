@@ -54,10 +54,13 @@ async function consume(key, scope, limit, windowMs, env) {
 
 export async function checkLoginRateLimits(email, request, env) {
 	const ip = getClientIp(request);
-	const [ipResult, ipEmailResult] = await Promise.all([
-		consume(ip, "login-ip", LOGIN_IP_LIMIT, LOGIN_IP_WINDOW_MS, env),
-		consume(`${ip}|${email}`, "login-ip-email", LOGIN_IP_EMAIL_LIMIT, LOGIN_IP_WINDOW_MS, env),
-	]);
+	// D1 writes are intentionally serialized here. Promise.all() allowed two
+	// concurrent read-modify-write operations to race on the same request's
+	// limiter state, which could overwrite a newer counter or keep a stale
+	// blocked_until value alive unexpectedly.
+	const ipResult = await consume(ip, "login-ip", LOGIN_IP_LIMIT, LOGIN_IP_WINDOW_MS, env);
+	if (!ipResult.allowed) return ipResult;
+	const ipEmailResult = await consume(`${ip}|${email}`, "login-ip-email", LOGIN_IP_EMAIL_LIMIT, LOGIN_IP_WINDOW_MS, env);
 	if (!ipResult.allowed || !ipEmailResult.allowed) {
 		return { allowed: false, retryAfterSeconds: Math.max(ipResult.retryAfterSeconds, ipEmailResult.retryAfterSeconds) };
 	}

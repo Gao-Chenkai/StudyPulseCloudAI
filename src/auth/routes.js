@@ -125,7 +125,9 @@ export async function handlePasswordLogin(request, env) {
 
 	const rate = await checkLoginRateLimits(email, request, env);
 	if (!rate.allowed) {
-		return fail("RATE_LIMITED", "请求过于频繁，请稍后再试", 429);
+		const response = fail("RATE_LIMITED", "请求过于频繁，请稍后再试", 429);
+		response.headers.set("Retry-After", String(rate.retryAfterSeconds || 30));
+		return response;
 	}
 
 	const credential = await getCredentialByEmail(email, env);
