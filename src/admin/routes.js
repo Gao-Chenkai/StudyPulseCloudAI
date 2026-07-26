@@ -14,6 +14,7 @@
 import { authenticateAdmin } from "./auth.js";
 import {
 	getDashboardStats,
+	getDashboardUsageTrend,
 	listApiKeys,
 	createApiKey,
 	updateApiKey,
@@ -160,6 +161,9 @@ export async function handleAdminApi(request, env, pathname) {
 			// GET /api/admin/stats
 			case pathname === "/api/admin/stats" && method === "GET":
 				return handleStats(env);
+
+			case pathname === "/api/admin/usage-trend" && method === "GET":
+				return handleUsageTrend(request, env);
 
 			// GET /api/admin/keys
 			case pathname === "/api/admin/keys" && method === "GET":
@@ -322,6 +326,14 @@ async function handleProcessTicket(request, env) {
 async function handleStats(env) {
 	const stats = await getDashboardStats(env);
 	return json({ success: true, data: stats });
+}
+
+async function handleUsageTrend(request, env) {
+	const range = new URL(request.url).searchParams.get("range") || "1D";
+	const allowedRanges = ["1D", "3D", "1W", "2W", "1M", "3M", "6M", "1Y"];
+	if (!allowedRanges.includes(range)) return error("Invalid range", 400);
+	const trend = await getDashboardUsageTrend(env, range);
+	return json({ success: true, data: { range, points: trend } });
 }
 
 async function handleListKeys(env) {

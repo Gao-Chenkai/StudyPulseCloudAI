@@ -47,6 +47,34 @@ export async function getDashboardStats(env) {
 	};
 }
 
+export async function getDashboardUsageTrend(env, range = "1D") {
+	const configs = {
+		"1D": { modifier: "-1 day", bucket: "strftime('%Y-%m-%dT%H:00:00Z', request_time)" },
+		"3D": { modifier: "-3 days", bucket: "date(request_time)" },
+		"1W": { modifier: "-7 days", bucket: "date(request_time)" },
+		"2W": { modifier: "-14 days", bucket: "date(request_time)" },
+		"1M": { modifier: "-1 month", bucket: "date(request_time)" },
+		"3M": { modifier: "-3 months", bucket: "date(request_time, '-' || ((CAST(strftime('%w', request_time) AS INTEGER) + 6) % 7) || ' days')" },
+		"6M": { modifier: "-6 months", bucket: "date(request_time, '-' || ((CAST(strftime('%w', request_time) AS INTEGER) + 6) % 7) || ' days')" },
+		"1Y": { modifier: "-1 year", bucket: "strftime('%Y-%m', request_time)" },
+	};
+	const config = configs[range] || configs["1D"];
+	const { results } = await env.StudyPulseDB.prepare(
+		`SELECT ${config.bucket} AS bucket,
+		        COUNT(*) AS calls,
+		        COALESCE(SUM(total_tokens), 0) AS tokens
+		   FROM request_logs
+		  WHERE request_time >= datetime('now', ?)
+		  GROUP BY bucket
+		  ORDER BY bucket ASC`,
+	).bind(config.modifier).all();
+	return results.map((row) => ({
+		bucket: row.bucket,
+		calls: Number(row.calls) || 0,
+		tokens: Number(row.tokens) || 0,
+	}));
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // API Key 管理
 // ────────────────────────────────────────────────────────────────────────────

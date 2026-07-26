@@ -122,6 +122,10 @@ function getAdminHtml(csrfToken, hasCfAccess) {
       <div class="panel health-panel"><div class="panel-heading"><div><h3>系统健康</h3><p>根据当前 Key 状态计算</p></div><span class="health-pill" id="healthPill">检查中</span></div><div class="health-meter"><span id="healthMeterFill"></span></div><div class="health-copy"><strong id="healthHeadline">正在读取状态</strong><span id="healthDetail">请稍候...</span></div></div>
       <div class="panel quick-panel"><div class="panel-heading"><div><h3>快速操作</h3><p>常用管理动作</p></div></div><div class="quick-actions"><button class="quick-action" onclick="showCreateModal()"><span>＋</span><div><strong>创建 API Key</strong><small>为用户发放新凭证</small></div></button><button class="quick-action" onclick="showCreateUserModal()"><span>◎</span><div><strong>新建用户</strong><small>创建已认证账户</small></div></button><button class="quick-action" onclick="switchTab('logs')"><span>≡</span><div><strong>查看请求日志</strong><small>排查调用与错误</small></div></button></div></div>
     </div>
+    <div class="trend-grid">
+      <div class="panel trend-panel"><div class="panel-heading"><div><h3>调用次数</h3><p>按时间统计 API 调用量</p></div><div class="range-switch" data-trend="calls"></div></div><div id="callsTrend" class="trend-chart" aria-label="调用次数折线图"></div></div>
+      <div class="panel trend-panel"><div class="panel-heading"><div><h3>Token 用量</h3><p>按时间统计 Token 消耗量</p></div><div class="range-switch" data-trend="tokens"></div></div><div id="tokensTrend" class="trend-chart" aria-label="Token 用量折线图"></div></div>
+    </div>
   </section>
 
   <section id="tab-keys" class="tab-content">
@@ -370,6 +374,8 @@ button,input,select{font:inherit}button{cursor:pointer}button:focus-visible,inpu
 @media (max-width:680px){.sidebar{transform:translateX(-100%);transition:transform .2s ease;box-shadow:12px 0 30px rgba(15,23,42,.08)}.sidebar.open{transform:translateX(0)}.main-content{width:100%;margin-left:0}.topbar{height:78px;padding:0 18px}.mobile-menu{display:block}.topbar-status{display:none}.tab-content{padding:25px 18px 40px}.page-heading{align-items:stretch;flex-direction:column;margin-bottom:20px}.heading-actions{width:100%}.heading-actions .btn{flex:1}.stats-grid{gap:10px}.stat-card{padding:15px;min-height:140px}.stat-value{font-size:24px}.quick-actions{grid-template-columns:1fr}.quick-action{flex-direction:row;align-items:center;gap:12px}.quick-action small{white-space:normal}.filter-toolbar{align-items:stretch}.filter-toolbar>*{width:100%!important}.filter-hint{margin-right:0}.modal{padding:20px}.toast{left:18px;right:18px;bottom:18px;text-align:center}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}}
 .usage-cell{min-width:145px}.usage-label{display:flex;justify-content:space-between;gap:8px;font-size:11px}.usage-label b{color:var(--text-muted);font-weight:600}.usage-bar{height:5px;border-radius:6px;background:#eef2f7;margin-top:6px;overflow:hidden}.usage-bar span{display:block;height:100%;border-radius:inherit;background:#60a5fa}.usage-unlimited{color:var(--text-soft);font-size:11px;margin-top:6px}
+.trend-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}.trend-panel{min-width:0}.range-switch{display:flex;gap:3px;flex-wrap:wrap;justify-content:flex-end;max-width:290px}.range-switch button{border:1px solid transparent;background:#f8fafc;color:var(--text-muted);border-radius:6px;padding:4px 7px;font-size:10px}.range-switch button:hover{color:var(--primary);background:#eff6ff}.range-switch button.active{color:var(--primary);background:#eff6ff;border-color:#bfdbfe;font-weight:700}.trend-chart{height:220px;margin-top:15px}.trend-chart svg{width:100%;height:100%;display:block;overflow:visible}.trend-empty{height:100%;display:grid;place-items:center;color:var(--text-soft);font-size:12px}.trend-meta{display:flex;justify-content:space-between;margin-top:3px;color:var(--text-soft);font-size:11px}
+@media (max-width:900px){.trend-grid{grid-template-columns:1fr}}
 `;
 
 const JS = `
@@ -377,6 +383,8 @@ const JS = `
 let authToken = "";
 let csrfToken = "";
 let hasCfAccess = false;
+const TREND_RANGES = ["1D", "3D", "1W", "2W", "1M", "3M", "6M", "1Y"];
+const trendRangeState = { calls: "1D", tokens: "1D" };
 
 // ── Init (错误保护：任何异常都降级到登录表单) ──
 (function init() {
@@ -565,9 +573,64 @@ async function loadDashboard() {
     }
     if (headline) headline.textContent = data.exceededQuotaKeys ? "有 Key 达到用量上限" : "所有资源运行正常";
     if (detail) detail.textContent = data.exceededQuotaKeys ? data.exceededQuotaKeys + " 个 Key 需要检查" : rate + "% 的 Key 处于启用状态";
+    renderTrendRangeSwitches();
+    await Promise.all([loadTrend("calls"), loadTrend("tokens")]);
   } catch (e) {
     showToast("加载仪表盘失败: " + e.message, "error");
   }
+}
+
+function renderTrendRangeSwitches() {
+  document.querySelectorAll(".range-switch").forEach((switcher) => {
+    const type = switcher.dataset.trend;
+    switcher.innerHTML = TREND_RANGES.map((range) => '<button type="button" class="' + (trendRangeState[type] === range ? "active" : "") + '" onclick="changeTrendRange(\\'' + type + '\\',\\'' + range + '\\')">' + range + '</button>').join("");
+  });
+}
+
+async function changeTrendRange(type, range) {
+  trendRangeState[type] = range;
+  renderTrendRangeSwitches();
+  await loadTrend(type);
+}
+
+async function loadTrend(type) {
+  const container = document.getElementById(type === "calls" ? "callsTrend" : "tokensTrend");
+  if (!container) return;
+  container.innerHTML = '<div class="trend-empty">加载中...</div>';
+  try {
+    const { data } = await apiJson("GET", "/api/admin/usage-trend?range=" + trendRangeState[type]);
+    renderTrend(container, data.points || [], type, data.range);
+  } catch (e) {
+    container.innerHTML = '<div class="trend-empty error-text">加载失败: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function renderTrend(container, points, type, range) {
+  const key = type === "calls" ? "calls" : "tokens";
+  const values = points.map((point) => Number(point[key]) || 0);
+  if (!values.length || values.every((value) => value === 0)) {
+    container.innerHTML = '<div class="trend-empty">该时间范围暂无数据</div>';
+    return;
+  }
+  const width = 720, height = 220, left = 42, right = 12, top = 12, bottom = 30;
+  const plotWidth = width - left - right, plotHeight = height - top - bottom;
+  const max = Math.max(...values, 1), step = values.length > 1 ? plotWidth / (values.length - 1) : plotWidth;
+  const coords = values.map((value, index) => [left + (values.length === 1 ? plotWidth / 2 : index * step), top + plotHeight - (value / max) * plotHeight]);
+  const path = coords.map((point, index) => (index ? "L" : "M") + point[0].toFixed(1) + " " + point[1].toFixed(1)).join(" ");
+  const area = path + " L " + coords[coords.length - 1][0].toFixed(1) + " " + (top + plotHeight) + " L " + coords[0][0].toFixed(1) + " " + (top + plotHeight) + " Z";
+  const color = type === "calls" ? "#2563eb" : "#7c3aed";
+  const grid = [0, .5, 1].map((ratio) => { const y = top + plotHeight * ratio; const label = Math.round(max * (1 - ratio)).toLocaleString(); return '<line x1="' + left + '" y1="' + y + '" x2="' + (width - right) + '" y2="' + y + '" stroke="#e5e7eb" stroke-dasharray="3 4"/><text x="' + (left - 8) + '" y="' + (y + 4) + '" text-anchor="end" fill="#9ca3af" font-size="10">' + label + '</text>'; }).join("");
+  const middle = Math.floor((points.length - 1) / 2);
+  const labels = [0, middle, points.length - 1].map((pointIndex, index) => '<text x="' + coords[pointIndex][0] + '" y="' + (height - 8) + '" text-anchor="' + (index === 0 ? "start" : index === 2 ? "end" : "middle") + '" fill="#9ca3af" font-size="10">' + formatTrendBucket(points[pointIndex].bucket, range) + '</text>').join("");
+  const dots = coords.map((point, index) => '<circle cx="' + point[0] + '" cy="' + point[1] + '" r="3.5" fill="#fff" stroke="' + color + '" stroke-width="2"><title>' + formatTrendBucket(points[index].bucket, range) + ' · ' + values[index].toLocaleString() + (type === "calls" ? " 次" : " tokens") + '</title></circle>').join("");
+  container.innerHTML = '<svg viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="' + (type === "calls" ? "调用次数" : "Token 用量") + '">' + grid + '<path d="' + area + '" fill="' + color + '" opacity=".08"/><path d="' + path + '" fill="none" stroke="' + color + '" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' + dots + labels + '</svg><div class="trend-meta"><span>纵轴：' + (type === "calls" ? "调用次数" : "Token 数量") + '</span><span>数据点：' + points.length + '</span></div>';
+}
+
+function formatTrendBucket(bucket, range) {
+  if (!bucket) return "";
+  if (range === "1D") return bucket.slice(11, 16);
+  if (range === "1Y") return bucket.slice(0, 7);
+  return bucket.slice(5, 10);
 }
 
 // ── Keys ──
