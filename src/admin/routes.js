@@ -594,8 +594,20 @@ async function handleAddBlacklist(request, env) {
 	if (!email || typeof email !== "string") {
 		return error("email is required", 400);
 	}
+	const normalizedEmail = email.trim().toLowerCase();
+	const user = await env.StudyPulseDB.prepare(
+		"SELECT id FROM users WHERE email_normalized = ? OR email = ?",
+	).bind(normalizedEmail, normalizedEmail).first();
+	let banResult = null;
+	if (user) {
+		const banReason = typeof reason === "string" && reason.trim()
+			? reason.trim()
+			: "违反服务条款和使用政策";
+		banResult = await createBan(user.id, banReason, env);
+		if (!banResult.success) return error(banResult.error, 400);
+	}
 
-	const result = await blacklistEmail(email.trim(), reason || null, env);
+	const result = await blacklistEmail(normalizedEmail, reason || null, env);
 	if (!result.success) {
 		return error(result.error, 400);
 	}
@@ -604,10 +616,10 @@ async function handleAddBlacklist(request, env) {
 		admin_user_id: "admin_system",
 		action: "blacklist_email",
 		target_user_id: null,
-		details: JSON.stringify({ email: email.trim().toLowerCase(), reason }),
+		details: JSON.stringify({ email: normalizedEmail, reason, ban_id: banResult?.banId || null }),
 	}).catch(() => {});
 
-	return json({ success: true });
+	return json({ success: true, data: banResult ? { emailSent: banResult.emailSent, emailError: banResult.emailError } : null });
 }
 
 async function handleRemoveBlacklist(request, env) {

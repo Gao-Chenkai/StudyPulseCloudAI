@@ -1106,11 +1106,11 @@ async function addBlacklist() {
   const reason = document.getElementById("blacklistReason").value.trim();
 
   try {
-    await apiJson("POST", "/api/admin/blacklist/add", { email, reason: reason || undefined });
+    const { data: result } = await apiJson("POST", "/api/admin/blacklist/add", { email, reason: reason || undefined });
     document.getElementById("blacklistEmail").value = "";
     document.getElementById("blacklistReason").value = "";
     loadBlacklist();
-    showToast("已封禁: " + email, "success");
+    showToast(result?.emailSent === false ? "已封禁，但封禁邮件发送失败: " + (result.emailError || "未知错误") : "已封禁: " + email, result?.emailSent === false ? "error" : "success");
   } catch (e) {
     showToast("封禁失败: " + e.message, "error");
   }
