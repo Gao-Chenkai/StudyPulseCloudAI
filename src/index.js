@@ -78,23 +78,27 @@ export default {
 
 			console.log(`[${method}] ${hostname}${pathname}`);
 
+			// The auth center is also consumed by native/web clients hosted on a
+			// different origin. JSON POST requests trigger a browser preflight.
+			if (method === "OPTIONS") return corsResponse(request);
+
 			// ── 管理后台子域名：仅 admin.chenkai.space ──
 			if (hostname === ADMIN_HOSTNAME) {
-				return await handleAdmin(request, env, ctx, pathname, method);
+				return withCors(await handleAdmin(request, env, ctx, pathname, method), request);
 			}
 
 			// ── 申诉子域名：仅 support.chenkai.space ──
 			if (hostname === SUPPORT_HOSTNAME) {
-				return await handleSupport(request, env, pathname, method);
+				return withCors(await handleSupport(request, env, pathname, method), request);
 			}
 
-	if (hostname === AUTH_HOSTNAME) {
-				return await handleAuthCenter(request, env, pathname, method);
+			if (hostname === AUTH_HOSTNAME) {
+				return withCors(await handleAuthCenter(request, env, pathname, method), request);
 			}
 
 			// ── 公开 API 子域名：仅 spapi.chenkai.space ──
 			if (hostname === SPAPI_HOSTNAME) {
-				return await handlePublicApi(request, env, ctx, pathname, method);
+				return withCors(await handlePublicApi(request, env, ctx, pathname, method), request);
 			}
 
 			// ── 本地开发 & Workers.dev 调试：路径路由（兼容全部功能）──
@@ -108,27 +112,48 @@ export default {
 					pathname.startsWith("/admin") ||
 					pathname.startsWith("/appeal/")
 				) {
-					return await handleAdmin(request, env, ctx, pathname, method);
+					return withCors(await handleAdmin(request, env, ctx, pathname, method), request);
 				}
 				if (pathname === "/api/appeals" && method === "POST") {
-					return await handleSupport(request, env, pathname, method);
+					return withCors(await handleSupport(request, env, pathname, method), request);
 				}
-				return await handlePublicApi(request, env, ctx, pathname, method);
+				return withCors(await handlePublicApi(request, env, ctx, pathname, method), request);
 			}
 
 			// ── 未知主机名 → 404 ──
-			return Response.json({ error: "Not Found" }, { status: 404 });
+			return withCors(Response.json({ error: "Not Found" }, { status: 404 }), request);
 		} catch (err) {
 			// 不要把未捕获异常升级成 Cloudflare 1101 HTML 页面；API 客户端需要
 			// 收到稳定的 JSON，并且异常详情只写入 Workers Logs，避免泄露内部信息。
 			console.error("Unhandled Worker request error:", err?.stack || err?.message || err);
-			return Response.json(
+			return withCors(Response.json(
 				{ error: "Internal server error" },
 				{ status: 500 },
-			);
+			), request);
 		}
 	},
 };
+
+function corsHeaders(request) {
+	const origin = request.headers.get("Origin");
+	return {
+		"Access-Control-Allow-Origin": origin || "*",
+		"Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
+		"Access-Control-Allow-Headers": "Content-Type, Authorization",
+		"Access-Control-Max-Age": "86400",
+		"Vary": "Origin",
+	};
+}
+
+function corsResponse(request) {
+	return new Response(null, { status: 204, headers: corsHeaders(request) });
+}
+
+function withCors(response, request) {
+	const headers = new Headers(response.headers);
+	for (const [name, value] of Object.entries(corsHeaders(request))) headers.set(name, value);
+	return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // 管理后台路由（仅 admin.chenkai.space 可访问）
