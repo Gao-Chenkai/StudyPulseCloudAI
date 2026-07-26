@@ -7,7 +7,9 @@ const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const json = (data, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
 
 export function handleSupportPage() {
-  return new Response(SUPPORT_HTML, { headers: { "Content-Type": "text/html; charset=utf-8", "X-Content-Type-Options": "nosniff" } });
+  const html = SUPPORT_HTML
+    .replaceAll('<div class="mark">S</div>', '<img class="mark" src="/StudyPulseLogo.png" alt="StudyPulse Logo" style="object-fit:cover">');
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "X-Content-Type-Options": "nosniff" } });
 }
 
 export async function handleSupportSendCode(request, env) {

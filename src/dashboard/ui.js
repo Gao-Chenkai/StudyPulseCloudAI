@@ -4,7 +4,8 @@ export function serveDashboardPage() {
   // The dashboard HTML is intentionally dependency-free. Keep the response
   // guard here so older cached templates with the original esc helper remain
   // syntactically valid while the Worker rolls out globally.
-  const html = HTML.replace("}[c])}", "}[c]))}");
+  const html = HTML.replace("}[c])}", "}[c]))}")
+    .replaceAll('<div class="mark">S</div>', '<img class="mark" src="/StudyPulseLogo.png" alt="StudyPulse Logo" style="object-fit:cover">');
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 }
 

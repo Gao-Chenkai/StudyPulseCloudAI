@@ -4,6 +4,7 @@ export async function renderLoginPage() {
 	const response = renderConsoleStyledPage();
 	const html = await response.text();
 	const appHtml = html
+		.replaceAll('<div class="mark"><b>S</b>', '<div class="mark"><img src="/StudyPulseLogo.png" alt="StudyPulse Logo" style="width:34px;height:34px;border-radius:10px;object-fit:cover">')
 		.replaceAll("StudyPulse Cloud AI", "StudyPulse App")
 		.replaceAll("Cloud AI 控制台", "StudyPulse App")
 		.replaceAll("登录 StudyPulse，", "登录 StudyPulse App，")

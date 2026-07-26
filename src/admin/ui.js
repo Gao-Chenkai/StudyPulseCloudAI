@@ -32,7 +32,9 @@ export function serveAdminPage(request, env) {
 	// 检测认证方式
 	const hasCfAccess = !!request.headers.get("Cf-Access-Jwt-Assertion");
 
-	return new Response(getAdminHtml(csrfToken, hasCfAccess), {
+	const html = getAdminHtml(csrfToken, hasCfAccess)
+		.replaceAll('<div class="brand-mark">S</div>', '<img class="brand-mark" src="/StudyPulseLogo.png" alt="StudyPulse Logo" style="object-fit:cover">');
+	return new Response(html, {
 		status: 200,
 		headers,
 	});
