@@ -2,6 +2,7 @@ import { requireSessionAuth } from "../auth/middleware.js";
 import { getMembershipPlan } from "../membership/membership.js";
 import { getUserById } from "../users/users.js";
 import { createContribution } from "../contributions/service.js";
+import { handleListTickets, handleCreateTicket } from "../support/routes.js";
 
 const TIME_ZONE = "Asia/Shanghai";
 
@@ -28,6 +29,10 @@ export async function handleUserDashboardApi(request, env, pathname) {
 	const user = await getUserById(auth.userId, env);
 	if (!user) return json({ error: "User not found" }, 404);
 	if (user.status === "banned") return json({ error: "Account banned" }, 403);
+	if (pathname === "/api/user/feedback") {
+		if (request.method.toUpperCase() === "GET") return handleListTickets(request, env);
+		if (request.method.toUpperCase() === "POST") return handleCreateTicket(request, env);
+	}
 	if (pathname === "/api/user/contributions" && request.method.toUpperCase() === "GET") {
 		const result = await env.StudyPulseDB.prepare("SELECT id,contribution_url,contribution_type,description,status,awarded_membership,membership_expires_at,admin_reply,created_at,reviewed_at FROM contribution_tickets WHERE user_id = ? ORDER BY created_at DESC LIMIT 30").bind(auth.userId).all();
 		return json({ success: true, data: result.results || [] });

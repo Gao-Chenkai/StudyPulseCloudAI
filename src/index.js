@@ -114,8 +114,8 @@ export default {
 				hostname.startsWith("127.0.0.1") ||
 				hostname.endsWith(".workers.dev")
 			) {
-				if ((pathname === "/dashboard" || pathname === "/dashboard/" || pathname === "/contributions") && method === "GET") return serveDashboardPage(pathname);
-				if (pathname === "/api/user/dashboard" || pathname === "/api/user/contributions") return withCors(await handleUserDashboardApi(request, env, pathname), request);
+				if ((pathname === "/dashboard" || pathname === "/dashboard/" || pathname === "/contributions" || pathname === "/feedback") && method === "GET") return serveDashboardPage(pathname);
+				if (pathname === "/api/user/dashboard" || pathname === "/api/user/contributions" || pathname === "/api/user/feedback") return withCors(await handleUserDashboardApi(request, env, pathname), request);
 				if (
 					pathname.startsWith("/api/admin/") ||
 					pathname.startsWith("/admin") ||
@@ -155,8 +155,8 @@ function corsHeaders(request) {
 }
 
 function handleDashboard(request, env, pathname, method) {
-	if ((pathname === "/" || pathname === "/dashboard" || pathname === "/dashboard/" || pathname === "/contributions") && method === "GET") return serveDashboardPage(pathname === "/contributions" ? "/contributions" : "/dashboard");
-	if (pathname === "/api/user/dashboard" || pathname === "/api/user/contributions") return handleUserDashboardApi(request, env, pathname);
+	if ((pathname === "/" || pathname === "/dashboard" || pathname === "/dashboard/" || pathname === "/contributions" || pathname === "/feedback") && method === "GET") return serveDashboardPage(pathname === "/contributions" || pathname === "/feedback" ? pathname : "/dashboard");
+	if (pathname === "/api/user/dashboard" || pathname === "/api/user/contributions" || pathname === "/api/user/feedback") return handleUserDashboardApi(request, env, pathname);
 	if (pathname === "/api/v1/auth/logout" && method === "POST") return destroySession(request, env).then(() => Response.json({ success: true }));
 	return Response.json({ error: "Not Found" }, { status: 404 });
 }
