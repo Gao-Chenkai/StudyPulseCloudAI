@@ -8,6 +8,7 @@
  */
 
 import { isEmailBlacklisted } from "../admin/database.js";
+import { sha256Hex } from "../auth.js";
 
 // ────────────────────────────────────────────────────────────────────────────
 // 发送验证码
@@ -65,6 +66,7 @@ export async function sendVerificationCode(rawEmail, env, purpose = "login") {
 
 	// 4. 过期时间 = now + 10 分钟（ISO 8601）
 	const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
+	const codeHash = await sha256Hex(code);
 
 	// 5. INSERT：delivery_status='pending'
 	await env.StudyPulseDB.prepare(
@@ -72,7 +74,7 @@ export async function sendVerificationCode(rawEmail, env, purpose = "login") {
 			 (email, email_normalized, code, purpose, used, attempts, delivery_status, expires_at)
 		 VALUES (?, ?, ?, ?, 0, 0, 'pending', ?)`,
 	)
-		.bind(email, email, code, purpose, expiresAt)
+		.bind(email, email, codeHash, purpose, expiresAt)
 		.run();
 
 	// 6. 调用 Resend 发送邮件
@@ -143,7 +145,10 @@ export async function consumeVerificationCode(rawEmail, code, env, purpose = "lo
 	if (Date.now() >= new Date(record.expires_at).getTime()) {
 		return { success: false, error: "Verification code expired" };
 	}
-	if (typeof code !== "string" || record.code !== code) {
+	const suppliedHash = typeof code === "string" ? await sha256Hex(code) : "";
+	// Accept legacy plaintext rows during the migration window, but all newly
+	// issued verification codes are stored as SHA-256 hashes.
+	if (typeof code !== "string" || (record.code !== suppliedHash && record.code !== code)) {
 		await env.StudyPulseDB.prepare(
 			"UPDATE email_verification_codes SET attempts = attempts + 1 WHERE id = ? AND used = 0",
 		).bind(record.id).run();

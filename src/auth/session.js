@@ -10,7 +10,9 @@
 import { sha256Hex } from "../auth.js";
 
 const SESSION_PREFIX = "sp_sess_";
+const REFRESH_PREFIX = "sp_refresh_";
 const SESSION_TTL_DAYS = 30;
+const REFRESH_TTL_DAYS = 90;
 
 // ────────────────────────────────────────────────────────────────────────────
 // 创建 Session
@@ -46,19 +48,27 @@ export async function createSessionWithMetadata(userId, env, metadata = {}) {
 		hex += bytes[i].toString(16).padStart(2, "0");
 	}
 	const token = SESSION_PREFIX + hex;
+	const refreshBytes = new Uint8Array(32);
+	crypto.getRandomValues(refreshBytes);
+	let refreshHex = "";
+	for (const byte of refreshBytes) refreshHex += byte.toString(16).padStart(2, "0");
+	const refreshToken = REFRESH_PREFIX + refreshHex;
 
 	// 3. SHA-256 哈希
 	const tokenHash = await sha256Hex(token);
+	const refreshTokenHash = await sha256Hex(refreshToken);
 
 	// 4. 过期时间 = now + 30 天
 	const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+	const refreshExpiresAt = new Date(Date.now() + REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
 	// 5. INSERT
 	const sessionId = crypto.randomUUID();
 	await env.StudyPulseDB.prepare(
 		`INSERT INTO sessions
-			 (id, user_id, token_hash, expires_at, created_at, device_name, user_agent, ip_address)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			 (id, user_id, token_hash, expires_at, created_at, device_name, user_agent, ip_address,
+			  refresh_token_hash, refresh_expires_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	)
 		.bind(
 			sessionId,
@@ -69,11 +79,25 @@ export async function createSessionWithMetadata(userId, env, metadata = {}) {
 			metadata.deviceName ?? null,
 			metadata.userAgent ?? null,
 			metadata.ipAddress ?? null,
+			refreshTokenHash,
+			refreshExpiresAt,
 		)
 		.run();
 
 	// 6. 返回原始 Token（仅此时可见）
-	return { token, expiresAt, sessionId };
+	return { token, refreshToken, expiresAt, refreshExpiresAt, sessionId };
+}
+
+export async function refreshSession(refreshToken, env) {
+	if (typeof refreshToken !== "string" || !refreshToken.startsWith(REFRESH_PREFIX)) return null;
+	const hash = await sha256Hex(refreshToken);
+	const row = await env.StudyPulseDB.prepare(
+		"SELECT id, user_id, refresh_expires_at, revoked_at FROM sessions WHERE refresh_token_hash = ?",
+	).bind(hash).first();
+	if (!row || row.revoked_at || !row.refresh_expires_at || Date.now() >= new Date(row.refresh_expires_at).getTime()) return null;
+	await revokeSessionById(row.id, env);
+	const next = await createSession(row.user_id, env);
+	return { ...next, userId: row.user_id };
 }
 
 // ────────────────────────────────────────────────────────────────────────────

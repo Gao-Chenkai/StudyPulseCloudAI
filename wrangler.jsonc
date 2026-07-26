@@ -34,6 +34,10 @@
 		{
 			"pattern": "support.chenkai.space",
 			"custom_domain": true
+		},
+		{
+			"pattern": "auth.chenkai.space",
+			"custom_domain": true
 		}
 	]
 	/**

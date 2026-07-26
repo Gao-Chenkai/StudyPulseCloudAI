@@ -149,9 +149,22 @@ X-API-Key: sp_beta_<hex>
 
 ### 4.3 密码认证 API（`/v1/auth/*`）
 
+### 4.4 统一身份中心（`auth.chenkai.space`）
+
+统一登录入口为 `https://auth.chenkai.space/login`，支持邮箱密码、邮箱验证码和 GitHub OAuth。新接口为：
+
+- `POST /auth/login/password`：`{ email, password }`
+- `POST /auth/send-code`：`{ email }`，验证码有效 10 分钟且服务端仅保存验证码哈希
+- `POST /auth/login/code`：`{ email, code }`，邮箱不存在时自动创建用户
+- `POST /auth/refresh`：`{ refresh_token }`，refresh token 单次轮换
+- `GET /oauth/github/start?return_to=studypulse://auth/callback`
+- `GET /oauth/github/callback`
+
+三种登录方式返回同一 Session 结构：`access_token`、`refresh_token`、`expires_at`、`refresh_expires_at` 和 `user`。GitHub 账号按 verified email 关联既有 `users`，没有可用邮箱时返回 `github_email_required`；OAuth state 存在 HttpOnly/Secure cookie 中用于 CSRF 防护。
+
 密码认证与邮箱验证码、Session、API Key 共用同一个 `users.id`，不会产生第二套会员、额度或使用记录体系。
 
-密码策略为 10–128 个 Unicode 字符；允许空格、中文和特殊字符，但不能是空字符串或全空白。Worker 使用 Web Crypto PBKDF2-HMAC-SHA-256，每个用户使用独立随机 salt，D1 只保存派生结果。默认迭代次数为 `120000`，可通过 `PASSWORD_PBKDF2_ITERATIONS` 提高；成功登录时自动重新哈希旧参数。
+密码策略为 10–128 个 Unicode 字符；允许空格、中文和特殊字符，但不能是空字符串或全空白。新密码使用 bcrypt（默认 cost `12`），D1 仅保存 bcrypt hash；历史 PBKDF2 凭据在成功登录后自动升级为 bcrypt。
 
 #### `POST /v1/auth/email/send`
 
@@ -411,7 +424,7 @@ App 用户和绑定用户的 API Key 共享统一的会员额度体系：
 
 ## 11. 配置、测试与发布
 
-必需 Secret 保持不变：`MINIMAX_API_KEY`、`RESEND_API_KEY`；管理员仍使用 `ADMIN_API_TOKEN`。可选配置：`PASSWORD_PBKDF2_ITERATIONS`，默认 `120000`，应在提高后保留旧值兼容一段时间以便成功登录自动重哈希。
+必需 Secret 保持不变：`MINIMAX_API_KEY`、`RESEND_API_KEY`；新增 `GITHUB_CLIENT_SECRET`，管理员仍使用 `ADMIN_API_TOKEN`。GitHub Client ID 可作为公开配置，GitHub Secret 必须通过 Cloudflare Secret 注入，不能写入客户端或仓库。可选配置：`GITHUB_CLIENT_ID`、`GITHUB_CALLBACK_URL`、`PASSWORD_BCRYPT_COST`（默认 12）。
 
 本地测试：
 

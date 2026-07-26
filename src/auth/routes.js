@@ -1,6 +1,7 @@
 import { sendVerificationCode, consumeVerificationCode } from "./email.js";
 import {
 	createSessionWithMetadata,
+	refreshSession,
 	revokeAllSessions,
 	revokeSessionById,
 } from "./session.js";
@@ -14,7 +15,7 @@ import {
 	savePassword,
 } from "../database/credentials.js";
 import {
-	DEFAULT_PASSWORD_ITERATIONS,
+	DEFAULT_PASSWORD_COST,
 	needsPasswordRehash,
 	validatePassword,
 	verifyPassword,
@@ -81,8 +82,12 @@ function sessionMetadata(request, deviceName) {
 
 function sessionPayload(session, user) {
 	return {
+		access_token: session.token,
+		refresh_token: session.refreshToken,
 		session_token: session.token,
+		token: session.token,
 		expires_at: session.expiresAt,
+		refresh_expires_at: session.refreshExpiresAt,
 		user: { id: user.id, email: user.email },
 	};
 }
@@ -142,9 +147,9 @@ export async function handlePasswordLogin(request, env) {
 
 	await clearFailedLogins(credential.user_id, env);
 	await resetLoginRateLimits(email, request, env);
-	const configuredIterations = Number(env.PASSWORD_PBKDF2_ITERATIONS || DEFAULT_PASSWORD_ITERATIONS);
-	if (needsPasswordRehash(credential, { iterations: configuredIterations })) {
-		await savePassword(credential.user_id, parsed.body.password, env, { iterations: configuredIterations });
+	const configuredCost = Number(env.PASSWORD_BCRYPT_COST || DEFAULT_PASSWORD_COST);
+	if (needsPasswordRehash(credential, { cost: configuredCost })) {
+		await savePassword(credential.user_id, parsed.body.password, env, { cost: configuredCost });
 	}
 	const user = await getUserById(credential.user_id, env);
 	if (user?.status === "banned") return fail("ACCOUNT_BANNED", "账号已被暂停，请通过申诉链接提交申诉", 403);
@@ -176,7 +181,7 @@ export async function handleRegisterVerify(request, env) {
 		return fail("EMAIL_ALREADY_REGISTERED", "该邮箱已注册，请直接登录或重置密码", 409);
 	}
 	await savePassword(user.id, parsed.body.password, env, {
-		iterations: Number(env.PASSWORD_PBKDF2_ITERATIONS || DEFAULT_PASSWORD_ITERATIONS),
+		cost: Number(env.PASSWORD_BCRYPT_COST || DEFAULT_PASSWORD_COST),
 	});
 	const session = await createSessionWithMetadata(
 		user.id,
@@ -229,7 +234,7 @@ export async function handlePasswordReset(request, env) {
 	const user = await getUserByEmail(email, env);
 	if (!user) return fail("INVALID_VERIFICATION_CODE", "验证码无效");
 	await savePassword(user.id, parsed.body.new_password, env, {
-		iterations: Number(env.PASSWORD_PBKDF2_ITERATIONS || DEFAULT_PASSWORD_ITERATIONS),
+		cost: Number(env.PASSWORD_BCRYPT_COST || DEFAULT_PASSWORD_COST),
 	});
 	await revokeAllSessions(user.id, env);
 	return ok({ user: { id: user.id, email: user.email } });
@@ -253,7 +258,7 @@ export async function handlePasswordChange(request, env) {
 		return fail("PASSWORD_UNCHANGED", "新密码不能与旧密码相同", 409);
 	}
 	await savePassword(auth.userId, parsed.body.new_password, env, {
-		iterations: Number(env.PASSWORD_PBKDF2_ITERATIONS || DEFAULT_PASSWORD_ITERATIONS),
+		cost: Number(env.PASSWORD_BCRYPT_COST || DEFAULT_PASSWORD_COST),
 	});
 	await revokeAllSessions(auth.userId, env);
 	const user = await getUserById(auth.userId, env);
@@ -310,4 +315,38 @@ export async function handleAuthSendCode(request, env, legacy = false) {
 			: fail("INVALID_REQUEST", "无法发送验证码");
 	}
 	return legacy ? Response.json({ success: true }) : ok({});
+}
+
+export async function handleCodeLogin(request, env) {
+	const parsed = await readJson(request);
+	if (parsed.error) return parsed.error;
+	const email = normalizeEmail(parsed.body?.email);
+	const emailError = validateEmail(email);
+	if (emailError) return emailError;
+	if (typeof parsed.body?.code !== "string" || !/^\d{6}$/.test(parsed.body.code)) {
+		return fail("INVALID_VERIFICATION_CODE", "验证码无效");
+	}
+	const consumed = await consumeVerificationCode(email, parsed.body.code, env, "login");
+	if (!consumed.success) return verificationFailure(consumed);
+	const user = await createUserIfNeeded(email, env);
+	if (user.status === "banned") return fail("ACCOUNT_BANNED", "账号已被暂停", 403);
+	await env.StudyPulseDB.prepare(
+		"UPDATE users SET email_verified = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+	).bind(user.id).run();
+	const session = await createSessionWithMetadata(user.id, env, await sessionMetadata(request, parsed.body?.device_name));
+	return ok(sessionPayload(session, { ...user, email }));
+}
+
+export async function handleRefresh(request, env) {
+	const parsed = await readJson(request);
+	if (parsed.error) return parsed.error;
+	const session = await refreshSession(parsed.body?.refresh_token, env);
+	if (!session) return fail("INVALID_REFRESH_TOKEN", "刷新令牌无效或已过期", 401);
+	const user = await getUserByIdFromSession(session, env);
+	return ok(sessionPayload(session, user));
+}
+
+async function getUserByIdFromSession(session, env) {
+	const row = await env.StudyPulseDB.prepare("SELECT id, email FROM users WHERE id = ?").bind(session.userId || "").first();
+	return row || { id: session.userId, email: "" };
 }

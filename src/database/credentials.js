@@ -1,4 +1,4 @@
-import { DEFAULT_PASSWORD_ITERATIONS, hashPassword } from "../security/password.js";
+import { DEFAULT_PASSWORD_COST, hashPassword } from "../security/password.js";
 
 export async function getCredentialByUserId(userId, env) {
 	return env.StudyPulseDB.prepare(
@@ -23,7 +23,7 @@ export async function getCredentialByEmail(email, env) {
 
 export async function savePassword(userId, password, env, options = {}) {
 	const credential = await hashPassword(password, {
-		iterations: options.iterations ?? DEFAULT_PASSWORD_ITERATIONS,
+		cost: options.cost ?? DEFAULT_PASSWORD_COST,
 	});
 	const now = new Date().toISOString();
 	await env.StudyPulseDB.prepare(
@@ -51,6 +51,9 @@ export async function savePassword(userId, password, env, options = {}) {
 		now,
 		now,
 	).run();
+	await env.StudyPulseDB.prepare(
+		"UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+	).bind(credential.password_hash, userId).run();
 	return credential;
 }
 

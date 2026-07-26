@@ -5,10 +5,11 @@
  * structure is safe to persist as-is in user_credentials.
  */
 
-export const PASSWORD_ALGORITHM = "pbkdf2-sha256";
-export const DEFAULT_PASSWORD_ITERATIONS = 120_000;
-export const PASSWORD_SALT_BYTES = 16;
-export const PASSWORD_DERIVED_BYTES = 32;
+import bcrypt from "bcryptjs";
+
+export const PASSWORD_ALGORITHM = "bcrypt";
+export const DEFAULT_PASSWORD_COST = 12;
+const LEGACY_PASSWORD_ALGORITHM = "pbkdf2-sha256";
 
 function toBase64(bytes) {
 	let binary = "";
@@ -46,35 +47,6 @@ export function validatePassword(password) {
 	return { valid: true, length };
 }
 
-function getIterations(options = {}) {
-	const iterations = Number(options.iterations ?? DEFAULT_PASSWORD_ITERATIONS);
-	if (!Number.isInteger(iterations) || iterations < 1) {
-		throw new Error("Invalid PBKDF2 iteration configuration");
-	}
-	return iterations;
-}
-
-async function derive(password, salt, iterations) {
-	const key = await crypto.subtle.importKey(
-		"raw",
-		new TextEncoder().encode(password),
-		{ name: "PBKDF2" },
-		false,
-		["deriveBits"],
-	);
-	const bits = await crypto.subtle.deriveBits(
-		{
-			name: "PBKDF2",
-			salt,
-			iterations,
-			hash: "SHA-256",
-		},
-		key,
-		PASSWORD_DERIVED_BYTES * 8,
-	);
-	return new Uint8Array(bits);
-}
-
 /**
  * @param {string} password
  * @param {{iterations?: number}} [options]
@@ -87,15 +59,14 @@ export async function hashPassword(password, options = {}) {
 		error.code = policy.code;
 		throw error;
 	}
-	const iterations = getIterations(options);
-	const salt = new Uint8Array(PASSWORD_SALT_BYTES);
-	crypto.getRandomValues(salt);
-	const derived = await derive(password, salt, iterations);
+	const cost = Number(options.cost ?? DEFAULT_PASSWORD_COST);
+	if (!Number.isInteger(cost) || cost < 8 || cost > 15) throw new Error("Invalid bcrypt cost");
+	const passwordHash = await bcrypt.hash(password, cost);
 	return {
-		password_hash: toBase64(derived),
-		password_salt: toBase64(salt),
+		password_hash: passwordHash,
+		password_salt: "",
 		password_algorithm: PASSWORD_ALGORITHM,
-		password_iterations: iterations,
+		password_iterations: cost,
 		password_updated_at: new Date().toISOString(),
 	};
 }
@@ -109,21 +80,25 @@ function timingSafeEqual(left, right) {
 	return result === 0;
 }
 
+async function legacyDerive(password, salt, iterations) {
+	const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), { name: "PBKDF2" }, false, ["deriveBits"]);
+	const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations, hash: "SHA-256" }, key, 256);
+	return new Uint8Array(bits);
+}
+
 /**
  * @param {string} password
  * @param {{password_hash:string,password_salt:string,password_algorithm:string,password_iterations:number}} credential
  * @returns {Promise<boolean>}
  */
 export async function verifyPassword(password, credential) {
-	if (typeof password !== "string" || !credential || credential.password_algorithm !== PASSWORD_ALGORITHM) {
+	if (typeof password !== "string" || !credential) {
 		return false;
 	}
 	try {
-		const derived = await derive(
-			password,
-			fromBase64(credential.password_salt),
-			getIterations({ iterations: credential.password_iterations }),
-		);
+		if (credential.password_algorithm === PASSWORD_ALGORITHM) return await bcrypt.compare(password, credential.password_hash);
+		if (credential.password_algorithm !== LEGACY_PASSWORD_ALGORITHM) return false;
+		const derived = await legacyDerive(password, fromBase64(credential.password_salt), Number(credential.password_iterations));
 		return timingSafeEqual(derived, fromBase64(credential.password_hash));
 	} catch {
 		return false;
@@ -137,5 +112,5 @@ export async function verifyPassword(password, credential) {
 export function needsPasswordRehash(credential, options = {}) {
 	return !credential
 		|| credential.password_algorithm !== PASSWORD_ALGORITHM
-		|| Number(credential.password_iterations) < getIterations(options);
+		|| Number(credential.password_iterations) < Number(options.cost ?? DEFAULT_PASSWORD_COST);
 }

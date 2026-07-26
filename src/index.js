@@ -25,6 +25,7 @@ import { writeRequestLog } from "./admin/database.js";
 import { authenticateRequest } from "./auth/middleware.js";
 import { sendVerificationCode, verifyCode } from "./auth/email.js";
 import { createSession, destroySession } from "./auth/session.js";
+import { handleGitHubCallback, handleGitHubStart, renderLoginPage } from "./auth/oauth.js";
 import { checkUserQuota, getMembershipPlan, recordUsage } from "./membership/membership.js";
 import { getUserById } from "./users/users.js";
 import { handleAppealPage, handleSubmitAppeal } from "./appeals/routes.js";
@@ -46,6 +47,8 @@ import {
 	handleLogoutCurrent,
 	handleLogoutAll,
 	handleMe,
+	handleCodeLogin,
+	handleRefresh,
 } from "./auth/routes.js";
 
 // 服务元信息
@@ -58,6 +61,7 @@ const SERVICE_META = {
 const SPAPI_HOSTNAME = "spapi.chenkai.space";
 const ADMIN_HOSTNAME = "admin.chenkai.space";
 const SUPPORT_HOSTNAME = "support.chenkai.space";
+const AUTH_HOSTNAME = "auth.chenkai.space";
 
 /**
  * Worker 默认导出（Cloudflare Workers 标准格式）
@@ -80,6 +84,10 @@ export default {
 			// ── 申诉子域名：仅 support.chenkai.space ──
 			if (hostname === SUPPORT_HOSTNAME) {
 				return await handleSupport(request, env, pathname, method);
+			}
+
+	if (hostname === AUTH_HOSTNAME) {
+				return await handleAuthCenter(request, env, pathname, method);
 			}
 
 			// ── 公开 API 子域名：仅 spapi.chenkai.space ──
@@ -190,6 +198,10 @@ function handlePublicApi(request, env, ctx, pathname, method) {
 	if (pathname === "/v1/auth/email/send" && method === "POST") {
 		return handleAuthSendCode(request, env);
 	}
+	if (pathname === "/auth/send-code" && method === "POST") return handleAuthSendCode(request, env);
+	if (pathname === "/auth/login/password" && method === "POST") return handlePasswordLogin(request, env);
+	if (pathname === "/auth/login/code" && method === "POST") return handleCodeLogin(request, env);
+	if (pathname === "/auth/refresh" && method === "POST") return handleRefresh(request, env);
 	if (pathname === "/v1/auth/login" && method === "POST") {
 		return handlePasswordLogin(request, env);
 	}
@@ -226,6 +238,17 @@ function handlePublicApi(request, env, ctx, pathname, method) {
 	}
 
 	// 其余路径 → 404
+	return Response.json({ error: "Not Found" }, { status: 404 });
+}
+
+async function handleAuthCenter(request, env, pathname, method) {
+	if (pathname === "/login" && method === "GET") return renderLoginPage();
+	if (pathname === "/oauth/github/start" && method === "GET") return handleGitHubStart(request, env);
+	if (pathname === "/oauth/github/callback" && method === "GET") return handleGitHubCallback(request, env);
+	if (pathname === "/auth/send-code" && method === "POST") return handleAuthSendCode(request, env);
+	if (pathname === "/auth/login/password" && method === "POST") return handlePasswordLogin(request, env);
+	if (pathname === "/auth/login/code" && method === "POST") return handleCodeLogin(request, env);
+	if (pathname === "/auth/refresh" && method === "POST") return handleRefresh(request, env);
 	return Response.json({ error: "Not Found" }, { status: 404 });
 }
 
@@ -313,7 +336,10 @@ async function handleVerifyCode(request, env) {
 	return Response.json({
 		success: true,
 		data: {
+			access_token: session.token,
+			refresh_token: session.refreshToken,
 			token: session.token,
+			refresh_expires_at: session.refreshExpiresAt,
 			membership_type: user?.membership_type || "free",
 			membership_expires_at: user?.membership_expires_at || null,
 		},
