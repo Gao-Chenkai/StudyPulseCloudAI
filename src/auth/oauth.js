@@ -60,11 +60,23 @@ export async function handleGitHubCallback(request, env) {
 	}
 	const token = await tokenResponse.json().catch(() => ({}));
 	if (!token.access_token) return redirect(`${returnTo}?error=github_token_exchange_failed`, 302);
-	const githubHeaders = { Authorization: `Bearer ${token.access_token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
-	const [profileResponse, emailsResponse] = await Promise.all([
-		fetch("https://api.github.com/user", { headers: githubHeaders }),
-		fetch("https://api.github.com/user/emails", { headers: githubHeaders }),
-	]);
+	const githubHeaders = {
+		Authorization: `Bearer ${token.access_token}`,
+		Accept: "application/vnd.github+json",
+		"X-GitHub-Api-Version": "2022-11-28",
+		"User-Agent": "StudyPulse-Cloud-AI",
+	};
+	let profileResponse;
+	let emailsResponse;
+	try {
+		[profileResponse, emailsResponse] = await Promise.all([
+			fetch("https://api.github.com/user", { headers: githubHeaders }),
+			fetch("https://api.github.com/user/emails", { headers: githubHeaders }),
+		]);
+	} catch (error) {
+		console.error("GitHub user lookup request failed:", error?.message || error);
+		return redirect(`${returnTo}?error=github_profile_failed`, 302);
+	}
 	if (!profileResponse.ok || !emailsResponse.ok) {
 		console.error("GitHub user lookup failed:", profileResponse.status, emailsResponse.status);
 		return redirect(`${returnTo}?error=github_profile_failed`, 302);
