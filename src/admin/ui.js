@@ -1368,7 +1368,7 @@ function formatDate(s) {
     // UTC designator before parsing so the browser does not treat it as local
     // time (the value stored in the database remains unchanged).
     const value = String(s).trim();
-    const utcValue = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(value)
+    const utcValue = /^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$/.test(value)
       ? value.replace(" ", "T") + "Z"
       : value;
     const d = new Date(utcValue);
