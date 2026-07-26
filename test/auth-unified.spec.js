@@ -35,6 +35,10 @@ describe("unified identity endpoints", () => {
 		const response = await request("/login", { method: "GET", url: "https://auth.chenkai.space/login" });
 		expect(response.status).toBe(200);
 		expect(response.headers.get("content-type")).toContain("text/html");
-		expect(await response.text()).toContain("GitHub");
+		const html = await response.text();
+		expect(html).toContain("GitHub");
+		// Password setup/reset forms use the aux class and must receive the same
+		// submit handler as the regular login forms.
+		expect(html).toContain("document.querySelectorAll('.form,.aux').forEach(form=>form.onsubmit");
 	});
 });
