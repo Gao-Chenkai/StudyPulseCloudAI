@@ -917,7 +917,7 @@ async function showUserDetail(userId) {
 async function banUser(userId) {
   const reason = prompt("请输入封禁原因");
   if (!reason || reason.trim().length < 3) return;
-  try { const result = await apiJson("POST", "/api/admin/bans/create", { user_id: userId, reason: reason.trim() }); showToast(result.data?.emailSent ? "账号已封禁，通知邮件已发送" : "账号已封禁，但通知邮件发送失败，请检查 Resend 配置", result.data?.emailSent ? "success" : "error"); await showUserDetail(userId); } catch (e) { showToast("封禁失败: " + e.message, "error"); }
+  try { const result = await apiJson("POST", "/api/admin/bans/create", { user_id: userId, reason: reason.trim() }); showToast(result.data?.emailSent ? "账号已封禁，通知邮件已发送" : "账号已封禁，但通知邮件发送失败: " + (result.data?.emailError || "未知错误"), result.data?.emailSent ? "success" : "error"); await showUserDetail(userId); } catch (e) { showToast("封禁失败: " + e.message, "error"); }
 }
 
 async function revokeUserSessions(userId) {
