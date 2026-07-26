@@ -1,7 +1,11 @@
 const AUTH_URL = "https://auth.chenkai.space/login";
 
 export function serveDashboardPage() {
-  return new Response(HTML, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+  // The dashboard HTML is intentionally dependency-free. Keep the response
+  // guard here so older cached templates with the original esc helper remain
+  // syntactically valid while the Worker rolls out globally.
+  const html = HTML.replace("}[c])}", "}[c]))}");
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 }
 
 const HTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>StudyPulse Cloud AI - 用户控制台</title><script>if(!new URLSearchParams(location.search).has('access_token')&&!localStorage.getItem('sp_session_token'))location.replace('https://auth.chenkai.space/login?redirect='+encodeURIComponent(location.origin+'/dashboard'));</script><style>
