@@ -12,9 +12,16 @@ export async function sendTransactionalEmail({ to, subject, html }, env) {
 	if (!env.RESEND_API_KEY) return { success: false, error: "RESEND_API_KEY not configured" };
 	try {
 		const response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ from: "StudyPulse Cloud AI <noreply@chenkai.space>", to, subject, html }) });
-		if (!response.ok) return { success: false, error: `Resend ${response.status}` };
+		if (!response.ok) {
+			const detail = (await response.text()).slice(0, 500);
+			console.error("Transactional email rejected by Resend", response.status, detail);
+			return { success: false, error: `Resend ${response.status}: ${detail}` };
+		}
 		return { success: true };
-	} catch (error) { return { success: false, error: error?.message || "delivery failed" }; }
+	} catch (error) {
+		console.error("Transactional email request failed", error?.message || error);
+		return { success: false, error: error?.message || "delivery failed" };
+	}
 }
 
 export async function createBan(userId, reason, env) {
@@ -27,7 +34,7 @@ export async function createBan(userId, reason, env) {
 	await env.StudyPulseDB.prepare("INSERT INTO bans (id,user_id,reason,appeal_token,status) VALUES (?,?,?,?,'active')").bind(banId, userId, reason, appealToken).run();
 	const appealUrl = `${APPEAL_ORIGIN}/appeal/${appealToken}`;
 	const email = await sendTransactionalEmail({ to: user.email, subject: "[StudyPulse Cloud AI] 您的账号访问权限已暂停", html: banNotificationEmail({ email: user.email, reason, appealUrl }) }, env);
-	return { success: true, banId, appealToken, emailSent: email.success };
+	return { success: true, banId, appealToken, emailSent: email.success, emailError: email.success ? null : email.error };
 }
 
 export async function getAppealByToken(tokenValue, env) {
@@ -55,5 +62,5 @@ export async function reviewAppeal(appealId, decision, reply, env) {
 		await env.StudyPulseDB.prepare("UPDATE bans SET status='cancelled' WHERE id=?").bind(appeal.ban_id).run();
 	}
 	const email = await sendTransactionalEmail({ to: appeal.email, subject: `[StudyPulse Cloud AI] 申诉审核结果：${status === "approved" ? "通过" : "拒绝"}`, html: appealResultEmail({ approved: status === "approved", reply }) }, env);
-	return { success: true, status, emailSent: email.success };
+	return { success: true, status, emailSent: email.success, emailError: email.success ? null : email.error };
 }
