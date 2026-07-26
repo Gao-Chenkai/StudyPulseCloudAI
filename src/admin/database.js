@@ -129,7 +129,22 @@ export async function removeBlacklistedEmail(email, env) {
  */
 export async function listBlacklistedEmails(env) {
 	const { results } = await env.StudyPulseDB.prepare(
-		"SELECT email, reason, created_at FROM blacklisted_emails ORDER BY created_at DESC",
+		`SELECT email, reason, created_at FROM (
+			SELECT u.email, b.reason, b.created_at
+			  FROM bans b
+			  JOIN users u ON u.id = b.user_id
+			 WHERE b.status = 'active'
+			UNION ALL
+			SELECT legacy.email, legacy.reason, legacy.created_at
+			  FROM blacklisted_emails legacy
+			 WHERE NOT EXISTS (
+				SELECT 1
+				  FROM bans b2
+				  JOIN users u2 ON u2.id = b2.user_id
+				 WHERE b2.status = 'active'
+				   AND lower(u2.email) = lower(legacy.email)
+			 )
+		) ORDER BY created_at DESC`,
 	).all();
 	return results;
 }

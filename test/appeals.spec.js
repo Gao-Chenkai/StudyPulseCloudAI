@@ -11,6 +11,9 @@ describe("account bans and appeals", () => {
 		expect(banResponse.status).toBe(200);
 		const ban = await banResponse.json();
 		await env.StudyPulseDB.prepare("INSERT INTO blacklisted_emails (email, reason) VALUES (?, ?)").bind(`${userId}@example.com`, "测试原因").run();
+		const blacklistResponse = await SELF.fetch("http://localhost/api/admin/blacklist", { headers });
+		const blacklistData = await blacklistResponse.json();
+		expect(blacklistData.data.some((item) => item.email === `${userId}@example.com`)).toBe(true);
 		expect(ban.data.appealToken).toMatch(/^BAN_[0-9a-f]{64}$/);
 		const page = await SELF.fetch(`https://support.chenkai.space/appeal/${ban.data.appealToken}`);
 		expect(page.status).toBe(200);

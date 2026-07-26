@@ -9,7 +9,10 @@ export function banNotificationEmail({ email, reason, appealUrl }) {
 }
 
 export function appealResultEmail({ approved, reply }) {
-	return shell(`<tr><td style="font-size:24px;font-weight:600;padding-bottom:24px">申诉审核结果</td></tr><tr><td style="font-size:16px;line-height:1.6;color:#444">您好，<br><br>您的账号封禁申诉已审核，结果为：<strong>${approved ? "通过" : "拒绝"}</strong>。${approved ? "您的账号访问权限已恢复。" : "账号封禁状态维持不变。"}${reply ? `<br><br>审核回复：${escapeHtml(reply)}` : ""}</td></tr>`);
+	if (!approved) {
+		return shell(`<tr><td style="font-size:16px;line-height:1.8;color:#444">您好，<br><br>感谢您就停用您的帐户访问权限的决定提出上诉。在仔细审核您的帐户后，我们坚持停用您的访问权限的决定。我们将不再考虑其他上诉请求。<br><br>谢谢您的理解。<br><br>此致<br>StudyPulse Cloud AI 团队${reply ? `<br><br>审核回复：${escapeHtml(reply)}` : ""}</td></tr><tr><td style="padding-top:32px;font-size:14px;line-height:1.6;color:#777">如果您有任何问题，请通过我们的帮助中心联系我们。</td></tr>`);
+	}
+	return shell(`<tr><td style="font-size:24px;font-weight:600;padding-bottom:24px">申诉审核结果</td></tr><tr><td style="font-size:16px;line-height:1.6;color:#444">您好，<br><br>您的账号封禁申诉已审核，结果为：<strong>通过</strong>。您的账号访问权限已恢复。${reply ? `<br><br>审核回复：${escapeHtml(reply)}` : ""}</td></tr>`);
 }
 
 export function accountDeletionEmail({ email }) {
