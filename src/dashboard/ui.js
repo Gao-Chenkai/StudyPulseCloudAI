@@ -1,7 +1,12 @@
 const AUTH_URL = "https://auth.chenkai.space/login";
 
 export function serveDashboardPage() {
-	return new Response(HTML, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+	const html = HTML
+		.replace("</head>", `<style>.shell{min-height:100vh}.side{position:fixed;inset:0 auto 0 0;width:232px;background:#fff;border-right:1px solid var(--line);padding:25px 14px;display:flex;flex-direction:column}.side-brand{padding:0 12px 38px;font-weight:750;font-size:19px}.side-label{padding:0 12px 9px;color:#94a3b8;font-size:11px;font-weight:700;letter-spacing:.08em}.nav{display:block;padding:11px 12px;border-radius:9px;color:var(--muted);text-decoration:none;margin-bottom:5px}.nav.active,.nav:hover{background:var(--soft);color:var(--blue);font-weight:650}.side-foot{margin-top:auto;border-top:1px solid var(--line);padding:16px 12px 0;color:var(--muted);font-size:12px}.main{margin-left:232px}.wrap{max-width:1180px;margin:auto;padding:28px 30px 55px}@media(max-width:800px){.side{position:static;width:100%;height:auto;padding:16px;display:block}.side-brand{padding-bottom:18px}.side-label,.side-foot{display:none}.nav{display:inline-block;margin-right:5px;padding:8px 10px}.main{margin-left:0}.wrap{padding:24px 18px 40px}}</style></head>`)
+		.replace('<body><main class="wrap">', '<body><div class="shell"><aside class="side"><div class="side-brand">StudyPulse Cloud AI</div><div class="side-label">用户中心</div><a class="nav active" href="#dashboard">⌂　仪表盘</a><a class="nav" href="#contributions">✦　代码贡献</a><div class="side-foot">● 安全连接</div></aside><main class="main"><div class="wrap">')
+		.replace('<div id="app">加载中...</div></main><script>', '<div id="dashboard"></div><div id="app">加载中...</div></div></main></div><script>')
+		.replace('<section class="panel contribution">', '<section id="contributions" class="panel contribution">');
+	return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 }
 
 const HTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>StudyPulse Cloud AI - 用户中心</title><style>
