@@ -421,7 +421,19 @@ export async function listUsers(env, filters = {}) {
 
 	const { results } = await env.StudyPulseDB.prepare(
 		`SELECT id, email, email_verified, role, membership_type,
-		        membership_expires_at, status, created_at
+		        membership_expires_at, status, created_at,
+		        CASE WHEN (github_id IS NOT NULL AND github_id <> '')
+		                  OR EXISTS (
+			                  SELECT 1 FROM user_oauth_accounts oa
+			                   WHERE oa.user_id = users.id AND oa.provider = 'github'
+		                  )
+		             THEN 1 ELSE 0 END AS github_bound,
+		        CASE WHEN (password_hash IS NOT NULL AND password_hash <> '')
+		                  OR EXISTS (
+			                  SELECT 1 FROM user_credentials uc
+			                   WHERE uc.user_id = users.id AND uc.password_hash <> ''
+		                  )
+		             THEN 1 ELSE 0 END AS password_set
 		   FROM users
 		   ${where}
 		  ORDER BY created_at DESC
@@ -467,7 +479,19 @@ export async function getUserDetail(env, userId) {
 	const user = await env.StudyPulseDB.prepare(
 		`SELECT id, email, email_verified, role, membership_type,
 		        membership_expires_at, status, github_id, username, avatar_url,
-		        created_at, updated_at
+		        created_at, updated_at,
+		        CASE WHEN (github_id IS NOT NULL AND github_id <> '')
+		                  OR EXISTS (
+			                  SELECT 1 FROM user_oauth_accounts oa
+			                   WHERE oa.user_id = users.id AND oa.provider = 'github'
+		                  )
+		             THEN 1 ELSE 0 END AS github_bound,
+		        CASE WHEN (password_hash IS NOT NULL AND password_hash <> '')
+		                  OR EXISTS (
+			                  SELECT 1 FROM user_credentials uc
+			                   WHERE uc.user_id = users.id AND uc.password_hash <> ''
+		                  )
+		             THEN 1 ELSE 0 END AS password_set
 		   FROM users
 		  WHERE id = ?`,
 	)

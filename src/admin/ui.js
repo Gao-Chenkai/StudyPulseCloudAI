@@ -896,6 +896,12 @@ function renderUsersTable(users) {
     const verified = u.email_verified === 1
       ? '<span class="status-badge status-enabled">已验证</span>'
       : '<span class="status-badge status-disabled">未验证</span>';
+    const githubBound = u.github_bound === 1
+      ? '<span class="status-badge status-enabled">已绑定</span>'
+      : '<span class="status-badge status-disabled">未绑定</span>';
+    const passwordSet = u.password_set === 1
+      ? '<span class="status-badge status-enabled">已设置</span>'
+      : '<span class="status-badge status-disabled">未设置</span>';
     const memberLabels = { free: "Free", plus: "Plus", pro: "Pro" };
     const memberBadge = u.membership_type === "pro"
       ? '<span class="status-badge" style="background:#d1fae5;color:#065f46">Pro</span>'
@@ -907,6 +913,8 @@ function renderUsersTable(users) {
       '<td>' + escapeHtml(u.id.slice(0,8)) + '...</td>' +
       '<td>' + escapeHtml(u.email) + '</td>' +
       '<td>' + verified + '</td>' +
+      '<td>' + githubBound + '</td>' +
+      '<td>' + passwordSet + '</td>' +
       '<td>' + roleBadge + '</td>' +
       '<td>' + memberBadge + '</td>' +
       '<td>' + (u.membership_expires_at ? formatDate(u.membership_expires_at) : "-") + '</td>' +
@@ -918,7 +926,7 @@ function renderUsersTable(users) {
   }).join("");
 
   return '<table><thead><tr>' +
-    '<th>ID</th><th>邮箱</th><th>验证</th><th>角色</th><th>会员</th>' +
+    '<th>ID</th><th>邮箱</th><th>验证</th><th>GitHub</th><th>密码</th><th>角色</th><th>会员</th>' +
     '<th>到期时间</th><th>注册时间</th><th>操作</th>' +
   '</tr></thead><tbody>' + rows + '</tbody></table>';
 }
@@ -976,6 +984,8 @@ async function showUserDetail(userId) {
       '<div class="user-info-grid">' +
         '<div><strong>邮箱</strong><p>' + escapeHtml(user.email) + '</p></div>' +
         '<div><strong>验证状态</strong><p>' + (user.email_verified ? "已验证" : "未验证") + '</p></div>' +
+        '<div><strong>GitHub 绑定</strong><p>' + (user.github_bound ? "已绑定" : "未绑定") + '</p></div>' +
+        '<div><strong>密码设置</strong><p>' + (user.password_set ? "已设置" : "未设置") + '</p></div>' +
         '<div><strong>角色</strong><p><select id="editRole" class="input-sm" onchange="updateUserField(\\'' + userId + '\\', \\'role\\', this.value)"><option value="user"' + (user.role==="user"?" selected":"") + '>用户</option><option value="admin"' + (user.role==="admin"?" selected":"") + '>管理员</option></select></p></div>' +
         '<div><strong>会员</strong><p><select id="editMember" class="input-sm" onchange="updateUserField(\\'' + userId + '\\', \\'membership_type\\', this.value)"><option value="free"' + (user.membership_type==="free"?" selected":"") + '>Free</option><option value="plus"' + (user.membership_type==="plus"?" selected":"") + '>Plus</option><option value="pro"' + (user.membership_type==="pro"?" selected":"") + '>Pro</option></select></p></div>' +
         '<div><strong>到期时间</strong><p>' + (user.membership_expires_at ? formatDate(user.membership_expires_at) : "永久") + '</p></div>' +

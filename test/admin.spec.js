@@ -301,6 +301,36 @@ describe("Admin API - 踢用户下线", () => {
 	});
 });
 
+describe("Admin API - 用户认证状态", () => {
+	it("返回 GitHub 绑定和密码设置状态，但不暴露凭证", async () => {
+		const userId = crypto.randomUUID();
+		const email = `${userId}@example.com`;
+		await env.StudyPulseDB.prepare(
+			"INSERT INTO users (id,email,email_normalized,email_verified) VALUES (?,?,?,1)",
+		).bind(userId, email, email).run();
+		await env.StudyPulseDB.prepare(
+			"INSERT INTO user_oauth_accounts (id,user_id,provider,provider_user_id) VALUES (?,?,?,?)",
+		).bind(crypto.randomUUID(), userId, "github", `github-${userId}`).run();
+		await env.StudyPulseDB.prepare(
+			"INSERT INTO user_credentials (user_id,password_hash,password_salt,password_iterations,password_updated_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
+		).bind(userId, "not-returned", "", 12, new Date().toISOString(), new Date().toISOString(), new Date().toISOString()).run();
+
+		const list = await adminFetch("/api/admin/users");
+		expect(list.status).toBe(200);
+		const listed = (await list.json()).data.find((user) => user.id === userId);
+		expect(listed.github_bound).toBe(1);
+		expect(listed.password_set).toBe(1);
+		expect(listed).not.toHaveProperty("password_hash");
+
+		const detail = await adminFetch(`/api/admin/users/${encodeURIComponent(userId)}`);
+		expect(detail.status).toBe(200);
+		const detailed = (await detail.json()).data;
+		expect(detailed.github_bound).toBe(1);
+		expect(detailed.password_set).toBe(1);
+		expect(detailed).not.toHaveProperty("password_hash");
+	});
+});
+
 describe("Admin API - 删除用户", () => {
 	it("删除用户及关联数据，并返回邮件发送状态", async () => {
 		const userId = crypto.randomUUID();
