@@ -11,14 +11,15 @@ For all limits and quotas, retrieve from the product's `/platform/limits/` page.
 
 ## Rules
 
-- **禁止本地直接 deploy**：不允许在本地执行 `npx wrangler deploy`，部署操作应由 CI/CD 或手动在远程环境执行。
+- **部署方式**：Cloudflare Worker 已与 GitHub 绑定。完成代码修改后，使用 `git commit` 提交并通过 `git push` 推送，由 GitHub 集成触发部署。
+- **禁止本地直接 deploy**：不允许在本地执行 `npx wrangler deploy`。
 
 ## Commands
 
 | Command | Purpose |
 |---------|---------|
 | `npx wrangler dev` | Local development |
-| `npx wrangler deploy` | Deploy to Cloudflare |
+| `git commit` + `git push` | Trigger deployment through the GitHub integration |
 | `npx wrangler types` | Generate TypeScript types |
 
 Run `wrangler types` after changing bindings in wrangler.jsonc.

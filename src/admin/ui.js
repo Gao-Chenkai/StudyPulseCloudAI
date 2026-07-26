@@ -1364,7 +1364,15 @@ function escapeHtml(s) {
 function formatDate(s) {
   if (!s) return "-";
   try {
-    const d = new Date(s);
+    // D1/CURRENT_TIMESTAMP returns a timezone-less UTC timestamp. Add the
+    // UTC designator before parsing so the browser does not treat it as local
+    // time (the value stored in the database remains unchanged).
+    const value = String(s).trim();
+    const utcValue = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(value)
+      ? value.replace(" ", "T") + "Z"
+      : value;
+    const d = new Date(utcValue);
+    if (Number.isNaN(d.getTime())) return s;
     return d.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
   } catch (e) { return s; }
 }
