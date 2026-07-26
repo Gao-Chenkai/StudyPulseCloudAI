@@ -1,7 +1,7 @@
 import { authenticateRequest, requireSessionAuth } from "../auth/middleware.js";
-import { consumeVerificationCode, sendVerificationCode } from "../auth/email.js";
+import { sendVerificationCode, verifyCode } from "../auth/email.js";
 import { createSession } from "../auth/session.js";
-import { getUserById, getUserByEmail } from "../users/users.js";
+import { getUserById } from "../users/users.js";
 
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const json = (data, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
@@ -22,7 +22,9 @@ export async function handleSupportVerifyCode(request, env) {
   let body; try { body = await request.json(); } catch { return json({ error: "请求格式错误" }, 400); }
   const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
   const code = typeof body?.code === "string" ? body.code.trim() : "";
-  const result = await consumeVerificationCode(email, code, env, "login");
+  // verifyCode consumes the code and resolves the existing user (or creates
+  // the same account identity as the legacy login flow), returning userId.
+  const result = await verifyCode(email, code, env, "login");
   if (!result.success) return json({ error: "验证码无效或已过期" }, 400);
   const session = await createSession(result.userId, env);
   const user = await getUserById(result.userId, env);

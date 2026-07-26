@@ -26,6 +26,7 @@ import migration12Sql from "../migrations/0012_create_blacklisted_emails.sql?raw
 import migration13Sql from "../migrations/0013_make_api_key_id_nullable.sql?raw";
 import migration14Sql from "../migrations/0014_add_password_auth.sql?raw";
 import migration15Sql from "../migrations/0015_create_bans_and_appeals.sql?raw";
+import migration16Sql from "../migrations/0016_create_feedback_tickets.sql?raw";
 
 const allMigrations = [
 	migration1Sql,  // 0001: api_keys
@@ -43,6 +44,7 @@ const allMigrations = [
 	migration13Sql, // 0013: nullable request_logs.api_key_id
 	migration14Sql, // 0014: password auth, normalized email, revocation, rate limits
 	migration15Sql, // 0015: bans and appeals
+	migration16Sql, // 0016: support feedback tickets
 ];
 
 // 与 v0.2 内存 Set 时期一致的 Beta Key，保证旧测试不破
