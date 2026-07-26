@@ -269,6 +269,38 @@ describe("Admin API - 删除 Key", () => {
 	});
 });
 
+describe("Admin API - 踢用户下线", () => {
+	it("撤销用户的全部 Session", async () => {
+		const sessionId = crypto.randomUUID();
+		await env.StudyPulseDB.prepare(
+			`INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
+			 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+		)
+			.bind(sessionId, seedUserId, await sha256Hex("sp_sess_admin_test"), new Date(Date.now() + 86_400_000).toISOString())
+			.run();
+
+		const res = await adminFetch("/api/admin/users/revoke-sessions", {
+			method: "POST",
+			body: { user_id: seedUserId },
+			csrfCookie: "test-csrf",
+		});
+		expect(res.status).toBe(200);
+		expect((await res.json()).data.revoked_count).toBeGreaterThanOrEqual(1);
+
+		const session = await env.StudyPulseDB.prepare("SELECT revoked_at FROM sessions WHERE id = ?").bind(sessionId).first();
+		expect(session.revoked_at).toBeTruthy();
+	});
+
+	it("用户不存在返回 404", async () => {
+		const res = await adminFetch("/api/admin/users/revoke-sessions", {
+			method: "POST",
+			body: { user_id: crypto.randomUUID() },
+			csrfCookie: "test-csrf",
+		});
+		expect(res.status).toBe(404);
+	});
+});
+
 describe("Admin API - rawKey 安全性", () => {
 	it("创建 Key 时返回 rawKey", async () => {
 		const res = await adminFetch("/api/admin/keys/create", {

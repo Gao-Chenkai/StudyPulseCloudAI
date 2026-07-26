@@ -422,7 +422,8 @@ export async function getUserDetail(env, userId) {
  */
 export async function getUserSessions(env, userId) {
 	const { results } = await env.StudyPulseDB.prepare(
-		`SELECT id, user_id, expires_at, last_used_at, created_at
+		`SELECT id, user_id, expires_at, last_used_at, created_at, revoked_at,
+		        device_name, user_agent, ip_address
 		   FROM sessions
 		  WHERE user_id = ?
 		  ORDER BY created_at DESC`,
@@ -431,6 +432,27 @@ export async function getUserSessions(env, userId) {
 		.all();
 
 	return results;
+}
+
+/**
+ * 撤销用户的全部登录 Session，让该账号的所有设备立即下线。
+ * Session 记录保留在数据库中，便于审计和排查。
+ *
+ * @param {{ StudyPulseDB: D1Database }} env
+ * @param {string} userId
+ * @returns {Promise<number>} 本次新撤销的 Session 数量
+ */
+export async function revokeUserSessions(env, userId) {
+	const { meta } = await env.StudyPulseDB.prepare(
+		`UPDATE sessions
+		    SET revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP)
+		  WHERE user_id = ?
+		    AND revoked_at IS NULL`,
+	)
+		.bind(userId)
+		.run();
+
+	return meta.changes;
 }
 
 /**

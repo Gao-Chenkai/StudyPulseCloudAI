@@ -23,6 +23,7 @@ import {
 	listUsers,
 	getUserDetail,
 	getUserSessions,
+	revokeUserSessions,
 	getUserApiKeys,
 	getUserUsageStats,
 	createUser,
@@ -210,6 +211,10 @@ export async function handleAdminApi(request, env, pathname) {
 		// POST /api/admin/users/create
 		case pathname === "/api/admin/users/create" && method === "POST":
 			return handleCreateUser(request, env);
+
+		// POST /api/admin/users/revoke-sessions
+		case pathname === "/api/admin/users/revoke-sessions" && method === "POST":
+			return handleRevokeUserSessions(request, env);
 
 		// GET /api/admin/blacklist
 		case pathname === "/api/admin/blacklist" && method === "GET":
@@ -496,6 +501,33 @@ async function handleUserStats(env, userId) {
 async function handleUserSessions(env, userId) {
 	const sessions = await getUserSessions(env, userId);
 	return json({ success: true, data: sessions });
+}
+
+async function handleRevokeUserSessions(request, env) {
+	let body;
+	try {
+		body = await request.json();
+	} catch {
+		return error("Invalid JSON body", 400);
+	}
+
+	const { user_id: userId } = body;
+	if (!userId || typeof userId !== "string") {
+		return error("user_id is required (string)", 400);
+	}
+
+	const user = await getUserDetail(env, userId);
+	if (!user) return error("User not found", 404);
+
+	const revokedCount = await revokeUserSessions(env, userId);
+	writeAdminLog(env, {
+		admin_user_id: "admin_system",
+		action: "revoke_user_sessions",
+		target_user_id: userId,
+		details: JSON.stringify({ revoked_count: revokedCount }),
+	}).catch(() => {});
+
+	return json({ success: true, data: { revoked_count: revokedCount } });
 }
 
 async function handleUserKeys(env, userId) {

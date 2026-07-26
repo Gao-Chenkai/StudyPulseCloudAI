@@ -843,6 +843,7 @@ async function showUserDetail(userId) {
   try {
     const { data: user } = await apiJson("GET", "/api/admin/users/" + userId);
     const { data: keys } = await apiJson("GET", "/api/admin/users/" + userId + "/keys");
+    const { data: sessions } = await apiJson("GET", "/api/admin/users/" + userId + "/sessions");
     const { data: stats } = await apiJson("GET", "/api/admin/users/" + userId + "/stats");
 
     const roleBadge = user.role === "admin" ? "管理员" : "用户";
@@ -862,6 +863,22 @@ async function showUserDetail(userId) {
       keysHtml += '</tbody></table></div>';
     }
 
+    const activeSessions = (sessions || []).filter(s => !s.revoked_at && new Date(s.expires_at).getTime() > Date.now());
+    let sessionsHtml = '<div class="detail-section-heading"><span>登录设备 (' + activeSessions.length + '个在线)</span>' +
+      (activeSessions.length > 0 ? '<button class="btn btn-sm btn-danger" onclick="revokeUserSessions(\\'' + userId + '\\')">踢下线（全部设备）</button>' : '') +
+      '</div>';
+    if (activeSessions.length > 0) {
+      sessionsHtml += '<div class="table-container"><table><thead><tr><th>设备</th><th>最近使用</th><th>登录时间</th><th>过期时间</th></tr></thead><tbody>';
+      activeSessions.forEach(s => {
+        sessionsHtml += '<tr><td>' + escapeHtml(s.device_name || s.user_agent || '未知设备') + '</td>' +
+          '<td>' + formatDate(s.last_used_at || s.created_at) + '</td>' +
+          '<td>' + formatDate(s.created_at) + '</td><td>' + formatDate(s.expires_at) + '</td></tr>';
+      });
+      sessionsHtml += '</tbody></table></div>';
+    } else {
+      sessionsHtml += '<p class="text-muted">当前没有在线设备</p>';
+    }
+
     document.getElementById("userDetailContent").innerHTML =
       '<div class="user-info-grid">' +
         '<div><strong>邮箱</strong><p>' + escapeHtml(user.email) + '</p></div>' +
@@ -875,9 +892,21 @@ async function showUserDetail(userId) {
       '</div>' +
       '<button class="btn btn-primary" style="margin-top:12px" onclick="showUserKeyModal(\\'' + userId + '\\')">+ 为新 Key</button>' +
       keysHtml +
-      '<style>.user-info-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; } .user-info-grid p { color: var(--text); margin-top: 4px; }</style>';
+      '<div class="user-sessions">' + sessionsHtml + '</div>' +
+      '<style>.user-info-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; } .user-info-grid p { color: var(--text); margin-top: 4px; } .user-sessions { margin-top: 20px; } .detail-section-heading { display:flex; justify-content:space-between; align-items:center; margin: 18px 0 8px; font-weight: 600; }</style>';
   } catch (e) {
     document.getElementById("userDetailContent").innerHTML = '<p class="error-text">加载失败: ' + escapeHtml(e.message) + '</p>';
+  }
+}
+
+async function revokeUserSessions(userId) {
+  if (!confirm("确定踢出该账号的全部登录设备吗？用户需要重新登录。")) return;
+  try {
+    const { data } = await apiJson("POST", "/api/admin/users/revoke-sessions", { user_id: userId });
+    showToast("已踢下线 " + (data.revoked_count || 0) + " 个设备", "success");
+    await showUserDetail(userId);
+  } catch (e) {
+    showToast("操作失败: " + e.message, "error");
   }
 }
 
