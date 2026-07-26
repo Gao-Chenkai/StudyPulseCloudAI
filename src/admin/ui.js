@@ -50,24 +50,49 @@ function getAdminHtml(csrfToken, hasCfAccess) {
 <style>${CSS}</style>
 </head>
 <body>
-<header>
-  <div class="header-inner">
-    <h1>StudyPulse Cloud AI <span class="badge">管理后台</span></h1>
-    <div class="header-actions">
-      <span id="loginStatus"></span>
-      <button id="btnLogout" class="btn btn-sm btn-outline" style="display:none" onclick="doLogout()">退出登录</button>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand-lockup">
+      <div class="brand-mark">S</div>
+      <div>
+        <strong>StudyPulse</strong>
+        <span>Cloud AI</span>
+      </div>
     </div>
-  </div>
-</header>
+    <div class="sidebar-label">管理中心</div>
+    <nav class="tabs" style="display:none" id="mainNav" aria-label="主导航">
+      <button class="tab active" data-tab="dashboard"><span class="nav-icon">⌂</span><span>仪表盘</span></button>
+      <button class="tab" data-tab="keys"><span class="nav-icon">⌁</span><span>Key 管理</span></button>
+      <button class="tab" data-tab="users"><span class="nav-icon">◎</span><span>用户管理</span></button>
+      <button class="tab" data-tab="blacklist"><span class="nav-icon">⊘</span><span>黑名单</span></button>
+      <button class="tab" data-tab="logs"><span class="nav-icon">≡</span><span>请求日志</span></button>
+    </nav>
+    <div class="sidebar-footer">
+      <span class="status-dot"></span>
+      <span id="loginStatus">未连接</span>
+      <button id="btnLogout" class="btn btn-sm btn-ghost" style="display:none" onclick="doLogout()">退出</button>
+    </div>
+  </aside>
 
-<main id="app">
+  <main id="app" class="main-content">
+    <header class="topbar">
+      <button class="mobile-menu" type="button" onclick="toggleSidebar()" aria-label="打开导航">☰</button>
+      <div>
+        <div class="eyebrow">StudyPulse Cloud AI <span class="badge">管理后台</span></div>
+        <h1 id="pageTitle">仪表盘</h1>
+      </div>
+      <div class="topbar-actions">
+        <span class="topbar-status"><span class="status-dot"></span><span id="topbarStatus">安全连接</span></span>
+      </div>
+    </header>
   <!-- 登录遮罩 -->
   <div id="loginOverlay" class="login-overlay" style="display:none">
     <div class="login-container">
-      <h2>管理员登录</h2>
-      <p class="text-muted">请输入 ADMIN_API_TOKEN 以访问管理后台</p>
+      <div class="login-brand"><div class="brand-mark">S</div><span>StudyPulse Admin</span></div>
+      <h2>欢迎回来</h2>
+      <p class="text-muted">请输入管理员凭证以访问控制台</p>
       <input type="password" id="loginToken" class="input" placeholder="ADMIN_API_TOKEN">
-      <button class="btn btn-primary" onclick="doLogin()">登录</button>
+      <button class="btn btn-primary btn-block" onclick="doLogin()">登录控制台</button>
       <p id="loginError" class="error-text" style="display:none"></p>
     </div>
   </div>
@@ -79,27 +104,30 @@ function getAdminHtml(csrfToken, hasCfAccess) {
     </div>
   </div>
 
-  <nav class="tabs" style="display:none" id="mainNav">
-    <button class="tab active" data-tab="dashboard">仪表盘</button>
-    <button class="tab" data-tab="keys">Key 管理</button>
-    <button class="tab" data-tab="users">用户管理</button>
-    <button class="tab" data-tab="blacklist">黑名单</button>
-    <button class="tab" data-tab="logs">请求日志</button>
-  </nav>
-
   <section id="tab-dashboard" class="tab-content active">
+    <div class="page-heading">
+      <div><h2>概览</h2><p>查看当前 API 资源和用户运行状态。</p></div>
+      <button class="btn btn-outline" onclick="loadDashboard()">↻ 刷新数据</button>
+    </div>
     <div class="stats-grid" id="statsGrid">
-      <div class="stat-card"><div class="stat-label">总 Key 数</div><div class="stat-value skeleton">-</div></div>
-      <div class="stat-card"><div class="stat-label">启用 Key 数</div><div class="stat-value skeleton">-</div></div>
-      <div class="stat-card"><div class="stat-label">总请求数</div><div class="stat-value skeleton">-</div></div>
-      <div class="stat-card"><div class="stat-label">用户数</div><div class="stat-value skeleton">-</div></div>
+      <div class="stat-card"><div class="stat-card-top"><span class="stat-icon blue">⌁</span><span class="stat-trend">资源</span></div><div class="stat-label">总 Key 数</div><div class="stat-value skeleton">-</div><div class="stat-foot">全部 API 访问凭证</div></div>
+      <div class="stat-card"><div class="stat-card-top"><span class="stat-icon green">✓</span><span class="stat-trend positive" id="enabledRate">--</span></div><div class="stat-label">启用 Key 数</div><div class="stat-value skeleton">-</div><div class="stat-foot">当前可用的访问凭证</div></div>
+      <div class="stat-card"><div class="stat-card-top"><span class="stat-icon violet">↗</span><span class="stat-trend">累计</span></div><div class="stat-label">总请求数</div><div class="stat-value skeleton">-</div><div class="stat-foot">所有 API 请求总量</div></div>
+      <div class="stat-card"><div class="stat-card-top"><span class="stat-icon orange">◎</span><span class="stat-trend">成员</span></div><div class="stat-label">用户数</div><div class="stat-value skeleton">-</div><div class="stat-foot">已注册的用户账户</div></div>
+    </div>
+    <div class="dashboard-grid">
+      <div class="panel health-panel"><div class="panel-heading"><div><h3>系统健康</h3><p>根据当前 Key 状态计算</p></div><span class="health-pill" id="healthPill">检查中</span></div><div class="health-meter"><span id="healthMeterFill"></span></div><div class="health-copy"><strong id="healthHeadline">正在读取状态</strong><span id="healthDetail">请稍候...</span></div></div>
+      <div class="panel quick-panel"><div class="panel-heading"><div><h3>快速操作</h3><p>常用管理动作</p></div></div><div class="quick-actions"><button class="quick-action" onclick="showCreateModal()"><span>＋</span><div><strong>创建 API Key</strong><small>为用户发放新凭证</small></div></button><button class="quick-action" onclick="showCreateUserModal()"><span>◎</span><div><strong>新建用户</strong><small>创建已认证账户</small></div></button><button class="quick-action" onclick="switchTab('logs')"><span>≡</span><div><strong>查看请求日志</strong><small>排查调用与错误</small></div></button></div></div>
     </div>
   </section>
 
   <section id="tab-keys" class="tab-content">
-    <div class="toolbar">
+    <div class="page-heading"><div><h2>Key 管理</h2><p>创建和维护 API 访问凭证，实时查看用量与状态。</p></div><div class="heading-actions">
       <button class="btn btn-primary" onclick="showCreateModal()">+ 创建新 Key</button>
       <button class="btn btn-outline" onclick="loadKeys()">刷新</button>
+    </div></div>
+    <div class="toolbar filter-toolbar">
+      <span class="filter-summary">API Keys</span><span class="filter-hint">按创建时间倒序排列</span>
     </div>
     <div id="keysTableContainer" class="table-container">
       <p class="empty-state">加载中...</p>
@@ -107,7 +135,8 @@ function getAdminHtml(csrfToken, hasCfAccess) {
   </section>
 
   <section id="tab-users" class="tab-content">
-    <div class="toolbar">
+    <div class="page-heading"><div><h2>用户管理</h2><p>管理用户身份、会员等级和关联 API Key。</p></div><div class="heading-actions"><button class="btn btn-primary" onclick="showCreateUserModal()">+ 新建用户</button></div></div>
+    <div class="toolbar filter-toolbar">
       <input type="text" id="userSearch" class="input-sm" placeholder="搜索邮箱..." style="width:200px">
       <select id="userRoleFilter" class="input-sm">
         <option value="">全部角色</option>
@@ -121,7 +150,6 @@ function getAdminHtml(csrfToken, hasCfAccess) {
         <option value="pro">Pro</option>
       </select>
       <button class="btn btn-outline" onclick="loadUsers()">查询</button>
-      <button class="btn btn-primary" onclick="showCreateUserModal()">+ 新建用户</button>
     </div>
     <div id="usersTableContainer" class="table-container">
       <p class="empty-state">点击查询加载用户</p>
@@ -129,7 +157,8 @@ function getAdminHtml(csrfToken, hasCfAccess) {
   </section>
 
   <section id="tab-blacklist" class="tab-content">
-    <div class="toolbar">
+    <div class="page-heading"><div><h2>黑名单</h2><p>阻止指定邮箱访问服务，并保留操作原因。</p></div></div>
+    <div class="toolbar filter-toolbar">
       <input type="email" id="blacklistEmail" class="input-sm" placeholder="输入邮箱地址..." style="width:280px">
       <input type="text" id="blacklistReason" class="input-sm" placeholder="拉黑原因（可选）" style="width:200px">
       <button class="btn btn-danger" onclick="addBlacklist()">拉黑</button>
@@ -141,7 +170,8 @@ function getAdminHtml(csrfToken, hasCfAccess) {
   </section>
 
   <section id="tab-logs" class="tab-content">
-    <div class="toolbar">
+    <div class="page-heading"><div><h2>请求日志</h2><p>筛选最近的 API 调用、响应状态和性能信息。</p></div></div>
+    <div class="toolbar filter-toolbar">
       <label>Key ID: <input type="number" id="logFilterKeyId" placeholder="全部" class="input-sm"></label>
       <label>用户ID: <input type="text" id="logFilterUserId" placeholder="全部" class="input-sm"></label>
       <label>方式: <select id="logFilterCallMethod" class="input-sm">
@@ -162,6 +192,7 @@ function getAdminHtml(csrfToken, hasCfAccess) {
     </div>
   </section>
 </main>
+</div>
 
 <!-- 创建 Key 模态框 -->
 <div id="modal-create" class="modal-overlay" style="display:none">
@@ -310,344 +341,15 @@ function getAdminHtml(csrfToken, hasCfAccess) {
 }
 
 const CSS = `
-:root {
-  --primary: #4f46e5;
-  --primary-hover: #4338ca;
-  --danger: #dc2626;
-  --danger-hover: #b91c1c;
-  --success: #059669;
-  --warning: #d97706;
-  --bg: #f8fafc;
-  --surface: #ffffff;
-  --border: #e2e8f0;
-  --text: #1e293b;
-  --text-muted: #64748b;
-  --radius: 8px;
-  --shadow: 0 1px 3px rgba(0,0,0,.1);
-}
-
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  line-height: 1.6;
-  min-height: 100vh;
-}
-
-header {
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  padding: 0 24px;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  box-shadow: var(--shadow);
-}
-
-.header-inner {
-  max-width: 1280px;
-  margin: 0 auto;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  height: 56px;
-}
-
-h1 { font-size: 18px; font-weight: 600; }
-.badge { font-size: 12px; color: var(--primary); background: #eef2ff; padding: 2px 8px; border-radius: 12px; margin-left: 8px; font-weight: 500; }
-
-main { max-width: 1280px; margin: 0 auto; padding: 24px; }
-
-/* Tabs */
-.tabs {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 24px;
-  border-bottom: 2px solid var(--border);
-}
-
-.tab {
-  padding: 10px 20px;
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-size: 14px;
-  color: var(--text-muted);
-  border-bottom: 2px solid transparent;
-  margin-bottom: -2px;
-  transition: all .15s;
-  font-weight: 500;
-}
-
-.tab:hover { color: var(--text); }
-.tab.active { color: var(--primary); border-bottom-color: var(--primary); }
-
-.tab-content { display: none; }
-.tab-content.active { display: block; }
-
-/* Stats */
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-}
-
-.stat-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 20px;
-  box-shadow: var(--shadow);
-}
-
-.stat-label { font-size: 13px; color: var(--text-muted); margin-bottom: 4px; }
-.stat-value { font-size: 28px; font-weight: 700; }
-.skeleton { color: var(--border); }
-
-/* Toolbar */
-.toolbar {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.toolbar label {
-  font-size: 13px;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-/* Buttons */
-.btn {
-  padding: 8px 16px;
-  border-radius: var(--radius);
-  border: 1px solid transparent;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all .15s;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
-.btn-primary:hover { background: var(--primary-hover); }
-.btn-outline { background: var(--surface); color: var(--text); border-color: var(--border); }
-.btn-outline:hover { background: var(--bg); }
-.btn-danger { background: var(--danger); color: #fff; border-color: var(--danger); }
-.btn-danger:hover { background: var(--danger-hover); }
-.btn-sm { padding: 4px 10px; font-size: 12px; }
-
-/* Inputs */
-.input, .input-sm {
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  font-size: 14px;
-  width: 100%;
-  background: var(--surface);
-  transition: border-color .15s;
-}
-
-.input:focus, .input-sm:focus {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(79,70,229,.1);
-}
-
-.input-sm { padding: 6px 10px; font-size: 13px; width: auto; }
-
-/* Table */
-.table-container {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow-x: auto;
-  box-shadow: var(--shadow);
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-th, td {
-  padding: 10px 12px;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
-
-th {
-  background: var(--bg);
-  font-weight: 600;
-  color: var(--text-muted);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-tr:hover td { background: #f8fafc; }
-
-.status-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.status-enabled { background: #ecfdf5; color: var(--success); }
-.status-disabled { background: #fef2f2; color: var(--danger); }
-.status-exceeded { background: #fffbeb; color: var(--warning); }
-
-/* Modal */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,.4);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 200;
-  animation: fadeIn .15s;
-}
-
-.modal {
-  background: var(--surface);
-  border-radius: 12px;
-  padding: 24px;
-  width: 90%;
-  max-width: 520px;
-  max-height: 90vh;
-  overflow-y: auto;
-  box-shadow: 0 20px 60px rgba(0,0,0,.15);
-  animation: slideUp .2s;
-}
-
-.modal-sm { max-width: 400px; }
-.modal-lg { width: 680px; }
-
-.modal h3 { margin-bottom: 16px; font-size: 16px; }
-
-.modal label {
-  display: block;
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-bottom: 4px;
-  margin-top: 12px;
-}
-
-.modal label:first-of-type { margin-top: 0; }
-
-.modal-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 20px;
-  justify-content: flex-end;
-}
-
-/* Login overlay */
-.login-overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--bg);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 150;
-}
-
-.login-container {
-  max-width: 400px;
-  width: 90%;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 32px;
-  box-shadow: var(--shadow);
-}
-
-.login-container h2 { margin-bottom: 8px; }
-.login-container .btn { margin-top: 16px; width: 100%; justify-content: center; }
-
-.text-muted { color: var(--text-muted); font-size: 13px; }
-.error-text { color: var(--danger); font-size: 13px; margin-top: 8px; }
-.copy-success { color: var(--success); font-size: 12px; margin-left: 8px; }
-
-/* Actions cell */
-.actions-cell { display: flex; gap: 4px; flex-wrap: wrap; }
-
-/* Empty State */
-.empty-state {
-  text-align: center;
-  padding: 40px;
-  color: var(--text-muted);
-  font-size: 14px;
-}
-
-/* Key display */
-.key-display {
-  background: #f0fdf4;
-  border: 1px solid #86efac;
-  border-radius: var(--radius);
-  padding: 16px;
-  margin-top: 16px;
-}
-
-.key-display code {
-  display: block;
-  font-size: 14px;
-  word-break: break-all;
-  margin: 8px 0;
-  background: #fff;
-  padding: 8px 12px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-}
-
-.key-warning {
-  color: var(--danger);
-  font-size: 12px;
-  margin-top: 8px;
-}
-
-/* Toast */
-.toast {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  padding: 12px 20px;
-  border-radius: var(--radius);
-  color: #fff;
-  font-size: 14px;
-  font-weight: 500;
-  z-index: 300;
-  animation: slideUp .2s;
-  box-shadow: 0 4px 12px rgba(0,0,0,.15);
-}
-
-.toast-success { background: var(--success); }
-.toast-error { background: var(--danger); }
-.toast-info { background: var(--primary); }
-
-@keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
-@keyframes slideUp { from { opacity: 0; transform: translateY(20px) } to { opacity: 1; transform: translateY(0) } }
-
-/* Responsive */
-@media (max-width: 768px) {
-  .stats-grid { grid-template-columns: repeat(2, 1fr); }
-  .modal { width: 95%; padding: 16px; }
-  main { padding: 16px; }
-}
+:root { --primary:#2563eb; --primary-hover:#1d4ed8; --danger:#dc2626; --danger-hover:#b91c1c; --success:#16a34a; --warning:#d97706; --violet:#7c3aed; --bg:#fff; --surface:#fff; --surface-soft:#f8fafc; --border:#e5e7eb; --border-strong:#d1d5db; --text:#111827; --text-muted:#6b7280; --text-soft:#9ca3af; --radius:12px; --shadow:0 8px 24px rgba(15,23,42,.05); }
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{background:#fff} body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;background:#fff;color:var(--text);line-height:1.55;min-height:100vh;font-size:14px}
+button,input,select{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid rgba(37,99,235,.2);outline-offset:2px}
+.app-shell{min-height:100vh;display:flex;background:#fff}.sidebar{position:fixed;inset:0 auto 0 0;width:240px;background:#fff;border-right:1px solid var(--border);display:flex;flex-direction:column;padding:24px 14px 16px;z-index:110}.brand-lockup{display:flex;align-items:center;gap:10px;padding:0 12px 34px}.brand-lockup strong{display:block;font-size:15px;letter-spacing:-.02em}.brand-lockup span{display:block;color:var(--text-soft);font-size:11px;margin-top:1px}.brand-mark{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#2563eb,#60a5fa);color:#fff;font-weight:800;box-shadow:0 5px 12px rgba(37,99,235,.22)}.sidebar-label{color:var(--text-soft);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:0 12px 9px}.tabs{display:flex;flex-direction:column;gap:4px}.tab{width:100%;display:flex;align-items:center;gap:11px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:var(--text-muted);font-size:14px;text-align:left;transition:background .18s ease,color .18s ease,transform .18s ease;font-weight:500}.tab:hover{background:#f3f6fb;color:var(--text)}.tab:active{transform:scale(.98)}.tab.active{background:#eff6ff;color:var(--primary);font-weight:650}.nav-icon{width:18px;text-align:center;font-size:19px;line-height:1;color:currentColor}.sidebar-footer{margin-top:auto;border-top:1px solid var(--border);padding:16px 12px 2px;display:flex;align-items:center;gap:7px;color:var(--text-muted);font-size:12px}.sidebar-footer .btn{margin-left:auto}.status-dot{width:7px;height:7px;border-radius:50%;background:var(--success);box-shadow:0 0 0 3px #dcfce7;display:inline-block;flex:none}.main-content{width:calc(100% - 240px);margin-left:240px;min-width:0}.topbar{height:92px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 clamp(24px,4vw,56px);background:#fff;position:sticky;top:0;z-index:80}.eyebrow{color:var(--text-soft);font-size:12px;margin-bottom:3px}.badge{font-size:11px;color:var(--primary);background:#eff6ff;padding:3px 8px;border-radius:999px;margin-left:6px;font-weight:600}.topbar h1{font-size:23px;line-height:1.2;letter-spacing:-.03em}.topbar-status{display:flex;align-items:center;gap:9px;color:var(--text-muted);font-size:12px}.mobile-menu{display:none;border:1px solid var(--border);background:#fff;border-radius:8px;padding:7px 10px;color:var(--text);margin-right:12px}.main-content>section,.main-content>.login-overlay,.main-content>.login-overlay+*{margin-left:auto;margin-right:auto}.tab-content{display:none;padding:34px clamp(24px,4vw,56px) 56px;max-width:1440px}.tab-content.active{display:block}.page-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:26px}.page-heading h2{font-size:25px;line-height:1.2;letter-spacing:-.03em}.page-heading p{color:var(--text-muted);margin-top:6px}.heading-actions{display:flex;gap:9px;flex-wrap:wrap}.stats-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.stat-card,.panel{background:#fff;border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}.stat-card{padding:20px 21px;min-height:157px}.stat-card-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.stat-icon{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;font-size:17px;font-weight:700}.stat-icon.blue{background:#eff6ff;color:#2563eb}.stat-icon.green{background:#f0fdf4;color:#16a34a}.stat-icon.violet{background:#f5f3ff;color:#7c3aed}.stat-icon.orange{background:#fff7ed;color:#ea580c}.stat-trend{font-size:11px;color:var(--text-soft)}.stat-trend.positive{color:var(--success);font-weight:650}.stat-label{font-size:13px;color:var(--text-muted);margin-bottom:3px}.stat-value{font-size:29px;line-height:1.2;font-weight:750;letter-spacing:-.035em}.stat-foot{color:var(--text-soft);font-size:11px;margin-top:9px}.skeleton{color:var(--border-strong)}.dashboard-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}.panel{padding:22px}.panel-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.panel h3{font-size:15px;letter-spacing:-.01em}.panel-heading p{color:var(--text-soft);font-size:12px;margin-top:4px}.health-pill{border-radius:999px;background:#f0fdf4;color:var(--success);padding:4px 9px;font-size:11px;font-weight:650}.health-meter{height:8px;border-radius:10px;background:#f1f5f9;margin:25px 0 13px;overflow:hidden}.health-meter span{display:block;height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,#60a5fa,#2563eb);transition:width .45s ease}.health-copy{display:flex;justify-content:space-between;gap:14px;font-size:12px}.health-copy span{color:var(--text-muted);text-align:right}.quick-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:19px}.quick-action{border:1px solid var(--border);background:#fff;border-radius:10px;padding:13px 10px;text-align:left;display:flex;flex-direction:column;gap:10px;transition:border-color .18s,background .18s,transform .18s}.quick-action:hover{border-color:#93c5fd;background:#f8fbff;transform:translateY(-1px)}.quick-action>span{font-size:18px;color:var(--primary)}.quick-action strong{display:block;font-size:12px}.quick-action small{display:block;color:var(--text-soft);font-size:10px;margin-top:3px;white-space:nowrap}.toolbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center}.filter-toolbar{padding:13px 15px;background:#fff;border:1px solid var(--border);border-radius:10px}.filter-toolbar label{font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:6px}.filter-summary{font-size:13px;font-weight:650}.filter-hint{font-size:12px;color:var(--text-soft);margin-right:auto}.btn{padding:9px 14px;border-radius:9px;border:1px solid transparent;cursor:pointer;font-size:13px;font-weight:600;transition:background .15s ease,border-color .15s ease,transform .15s ease,box-shadow .15s ease;display:inline-flex;align-items:center;justify-content:center;gap:6px}.btn:active{transform:scale(.97)}.btn-primary{background:var(--primary);color:#fff;border-color:var(--primary);box-shadow:0 3px 8px rgba(37,99,235,.17)}.btn-primary:hover{background:var(--primary-hover);border-color:var(--primary-hover)}.btn-outline{background:#fff;color:var(--text);border-color:var(--border-strong)}.btn-outline:hover{background:#f8fafc;border-color:#94a3b8}.btn-ghost{background:transparent;color:var(--text-muted);border:0;padding:3px 0}.btn-ghost:hover{color:var(--primary)}.btn-danger{background:var(--danger);color:#fff;border-color:var(--danger)}.btn-danger:hover{background:var(--danger-hover)}.btn-sm{padding:6px 9px;font-size:11px}.btn-block{width:100%}.input,.input-sm{padding:9px 11px;border:1px solid var(--border-strong);border-radius:8px;font-size:13px;width:100%;background:#fff;color:var(--text);transition:border-color .15s,box-shadow .15s}.input::placeholder,.input-sm::placeholder{color:#a1a1aa}.input:focus,.input-sm:focus{outline:0;border-color:#60a5fa;box-shadow:0 0 0 3px rgba(37,99,235,.11)}.input-sm{padding:7px 10px;font-size:12px;width:auto}.table-container{background:#fff;border:1px solid var(--border);border-radius:12px;overflow-x:auto;box-shadow:var(--shadow)}table{width:100%;border-collapse:collapse;font-size:12px;min-width:760px}th,td{padding:13px 15px;text-align:left;border-bottom:1px solid #f0f1f3;white-space:nowrap}tbody tr:last-child td{border-bottom:0}th{background:#fafafa;font-weight:650;color:var(--text-muted);font-size:11px;letter-spacing:.02em}tbody tr{transition:background .15s}tbody tr:hover td{background:#f8fbff}.status-badge{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;font-size:10px;font-weight:650}.status-enabled{background:#f0fdf4;color:#15803d}.status-disabled{background:#fef2f2;color:#b91c1c}.status-exceeded{background:#fff7ed;color:#c2410c}.actions-cell{display:flex;gap:5px;flex-wrap:wrap}.empty-state{text-align:center;padding:58px 30px;color:var(--text-muted);font-size:13px}.modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.38);backdrop-filter:blur(3px);display:flex;justify-content:center;align-items:center;padding:18px;z-index:200;animation:fadeIn .16s ease}.modal{background:#fff;border:1px solid rgba(255,255,255,.7);border-radius:16px;padding:26px;width:90%;max-width:520px;max-height:90vh;overflow-y:auto;box-shadow:0 24px 70px rgba(15,23,42,.2);animation:slideUp .2s ease}.modal-sm{max-width:400px}.modal-lg{width:720px}.modal h3{margin-bottom:18px;font-size:18px;letter-spacing:-.02em}.modal label{display:block;font-size:12px;color:var(--text-muted);margin-bottom:5px;margin-top:14px}.modal label:first-of-type{margin-top:0}.modal-actions{display:flex;gap:8px;margin-top:22px;justify-content:flex-end}.login-overlay{position:fixed;inset:0;background:#fff;display:flex;justify-content:center;align-items:center;z-index:150}.login-container{max-width:410px;width:calc(100% - 36px);background:#fff;border:1px solid var(--border);border-radius:18px;padding:34px;box-shadow:0 18px 60px rgba(15,23,42,.08)}.login-brand{display:flex;align-items:center;gap:9px;color:var(--text);font-weight:700;margin-bottom:32px}.login-brand .brand-mark{width:30px;height:30px;border-radius:8px;font-size:13px}.login-container h2{font-size:25px;letter-spacing:-.04em;margin-bottom:7px}.login-container .input{margin-top:23px}.login-container .btn{margin-top:12px}.text-muted{color:var(--text-muted);font-size:13px}.error-text{color:var(--danger);font-size:12px;margin-top:9px}.copy-success{color:var(--success);font-size:12px;margin-left:8px}.key-display{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:16px;margin-top:16px}.key-display code{display:block;font-size:13px;word-break:break-all;margin:9px 0;background:#fff;padding:9px 11px;border-radius:7px;border:1px solid var(--border)}.key-warning{color:var(--danger);font-size:11px;margin-top:8px}.toast{position:fixed;bottom:24px;right:24px;padding:12px 17px;border-radius:10px;color:#fff;font-size:13px;font-weight:600;z-index:300;animation:slideUp .2s ease;box-shadow:0 8px 24px rgba(15,23,42,.16)}.toast-success{background:#16a34a}.toast-error{background:#dc2626}.toast-info{background:#2563eb}.user-info-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}.user-info-grid>div{border:1px solid var(--border);border-radius:9px;padding:12px}.user-info-grid strong{font-size:11px;color:var(--text-muted)}.user-info-grid p{color:var(--text);margin-top:5px}.login-container p{line-height:1.6}@keyframes fadeIn{from{opacity:0}to{opacity:1}}@keyframes slideUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@media (max-width:900px){.sidebar{width:210px}.main-content{width:calc(100% - 210px);margin-left:210px}.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-grid{grid-template-columns:1fr}}
+@media (max-width:680px){.sidebar{transform:translateX(-100%);transition:transform .2s ease;box-shadow:12px 0 30px rgba(15,23,42,.08)}.sidebar.open{transform:translateX(0)}.main-content{width:100%;margin-left:0}.topbar{height:78px;padding:0 18px}.mobile-menu{display:block}.topbar-status{display:none}.tab-content{padding:25px 18px 40px}.page-heading{align-items:stretch;flex-direction:column;margin-bottom:20px}.heading-actions{width:100%}.heading-actions .btn{flex:1}.stats-grid{gap:10px}.stat-card{padding:15px;min-height:140px}.stat-value{font-size:24px}.quick-actions{grid-template-columns:1fr}.quick-action{flex-direction:row;align-items:center;gap:12px}.quick-action small{white-space:normal}.filter-toolbar{align-items:stretch}.filter-toolbar>*{width:100%!important}.filter-hint{margin-right:0}.modal{padding:20px}.toast{left:18px;right:18px;bottom:18px;text-align:center}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}}
+.usage-cell{min-width:145px}.usage-label{display:flex;justify-content:space-between;gap:8px;font-size:11px}.usage-label b{color:var(--text-muted);font-weight:600}.usage-bar{height:5px;border-radius:6px;background:#eef2f7;margin-top:6px;overflow:hidden}.usage-bar span{display:block;height:100%;border-radius:inherit;background:#60a5fa}.usage-unlimited{color:var(--text-soft);font-size:11px;margin-top:6px}
 `;
 
 const JS = `
@@ -738,6 +440,7 @@ async function initApp() {
   document.getElementById("loadingOverlay").style.display = "none";
   document.getElementById("loginOverlay").style.display = "none";
   document.getElementById("mainNav").style.display = "flex";
+  document.querySelectorAll(".tab-content").forEach(c => c.style.display = "");
   document.getElementById("tab-dashboard").classList.add("active");
   updateLoginStatus(true);
   loadDashboard();
@@ -746,10 +449,12 @@ async function initApp() {
 function updateLoginStatus(online) {
   const el = document.getElementById("loginStatus");
   const btn = document.getElementById("btnLogout");
+  const topbar = document.getElementById("topbarStatus");
   if (!el || !btn) return;
   if (online) {
     el.textContent = hasCfAccess ? "Cloudflare Access" : "已连接";
     el.style.color = "var(--success)";
+    if (topbar) topbar.textContent = hasCfAccess ? "Cloudflare Access" : "安全连接";
     btn.style.display = "";
   }
 }
@@ -796,10 +501,20 @@ async function apiJson(method, path, body) {
 function switchTab(name) {
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
   document.querySelectorAll(".tab-content").forEach(c => c.classList.toggle("active", c.id === "tab-" + name));
+  const titles = { dashboard: "仪表盘", keys: "Key 管理", users: "用户管理", blacklist: "黑名单", logs: "请求日志" };
+  const title = document.getElementById("pageTitle");
+  if (title) title.textContent = titles[name] || "管理后台";
+  const sidebar = document.getElementById("sidebar");
+  if (sidebar) sidebar.classList.remove("open");
   if (name === "dashboard") loadDashboard();
   else if (name === "keys") loadKeys();
   else if (name === "users") loadUsers();
   else if (name === "blacklist") loadBlacklist();
+}
+
+function toggleSidebar() {
+  const sidebar = document.getElementById("sidebar");
+  if (sidebar) sidebar.classList.toggle("open");
 }
 
 // ── Dashboard ──
@@ -812,6 +527,21 @@ async function loadDashboard() {
     cards[2].textContent = data.totalRequests;
     cards[3].textContent = data.totalUsers ?? "-";
     cards.forEach(c => c.classList.remove("skeleton"));
+    const rate = data.totalKeys ? Math.round((data.enabledKeys / data.totalKeys) * 100) : 0;
+    const rateEl = document.getElementById("enabledRate");
+    const fill = document.getElementById("healthMeterFill");
+    const pill = document.getElementById("healthPill");
+    const headline = document.getElementById("healthHeadline");
+    const detail = document.getElementById("healthDetail");
+    if (rateEl) rateEl.textContent = rate + "%";
+    if (fill) fill.style.width = rate + "%";
+    if (pill) {
+      pill.textContent = data.exceededQuotaKeys ? data.exceededQuotaKeys + " 个需关注" : "运行良好";
+      pill.style.background = data.exceededQuotaKeys ? "#fff7ed" : "#f0fdf4";
+      pill.style.color = data.exceededQuotaKeys ? "#c2410c" : "var(--success)";
+    }
+    if (headline) headline.textContent = data.exceededQuotaKeys ? "有 Key 达到用量上限" : "所有资源运行正常";
+    if (detail) detail.textContent = data.exceededQuotaKeys ? data.exceededQuotaKeys + " 个 Key 需要检查" : rate + "% 的 Key 处于启用状态";
   } catch (e) {
     showToast("加载仪表盘失败: " + e.message, "error");
   }
@@ -852,12 +582,14 @@ function renderKeysTable(keys) {
     const usageLabel = limitType === "tokens"
       ? k.token_count + ' tokens / ' + (k.request_limit != null ? k.request_limit + ' tokens' : '\u221e')
       : k.request_count + '次 / ' + (k.request_limit != null ? k.request_limit + '次' : '\u221e');
+    const usagePercent = k.request_limit != null ? Math.min(100, Math.round((currentUsage / k.request_limit) * 100)) : 0;
+    const usageHtml = '<div class="usage-cell"><div class="usage-label"><span>' + usageLabel + '</span>' + (k.request_limit != null ? '<b>' + usagePercent + '%</b>' : '') + '</div>' + (k.request_limit != null ? '<div class="usage-bar"><span style="width:' + usagePercent + '%"></span></div>' : '<div class="usage-unlimited">不限量</div>') + '</div>';
 
     return '<tr>' +
       '<td>' + k.id + '</td>' +
       '<td>' + escapeHtml(k.name) + '</td>' +
       '<td>' + statusHtml + '</td>' +
-      '<td>' + usageLabel + '</td>' +
+      '<td>' + usageHtml + '</td>' +
       '<td>' + (k.expires_at ? formatDate(k.expires_at) : '-') + '</td>' +
       '<td>' + formatDate(k.created_at) + '</td>' +
       '<td>' + (k.last_used_at ? formatDate(k.last_used_at) : '\u4ece\u672a\u4f7f\u7528') + '</td>' +
