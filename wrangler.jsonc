@@ -38,6 +38,10 @@
 		{
 			"pattern": "auth.chenkai.space",
 			"custom_domain": true
+		},
+		{
+			"pattern": "dash.studypulse.chenkai.space",
+			"custom_domain": true
 		}
 	]
 	/**

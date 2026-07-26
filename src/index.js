@@ -38,6 +38,8 @@ import {
 	handleListTickets,
 	handleCreateTicket,
 } from "./support/routes.js";
+import { handleUserDashboardApi } from "./dashboard/routes.js";
+import { serveDashboardPage } from "./dashboard/ui.js";
 import {
 	handleAuthSendCode,
 	handlePasswordChange,
@@ -64,6 +66,7 @@ const SPAPI_HOSTNAME = "spapi.chenkai.space";
 const ADMIN_HOSTNAME = "admin.chenkai.space";
 const SUPPORT_HOSTNAME = "support.chenkai.space";
 const AUTH_HOSTNAME = "auth.chenkai.space";
+const DASH_HOSTNAME = "dash.studypulse.chenkai.space";
 
 /**
  * Worker 默认导出（Cloudflare Workers 标准格式）
@@ -96,6 +99,10 @@ export default {
 				return withCors(await handleAuthCenter(request, env, pathname, method), request);
 			}
 
+			if (hostname === DASH_HOSTNAME) {
+				return withCors(await handleDashboard(request, env, pathname, method), request);
+			}
+
 			// ── 公开 API 子域名：仅 spapi.chenkai.space ──
 			if (hostname === SPAPI_HOSTNAME) {
 				return withCors(await handlePublicApi(request, env, ctx, pathname, method), request);
@@ -107,6 +114,8 @@ export default {
 				hostname.startsWith("127.0.0.1") ||
 				hostname.endsWith(".workers.dev")
 			) {
+				if ((pathname === "/dashboard" || pathname === "/dashboard/") && method === "GET") return serveDashboardPage();
+				if (pathname === "/api/user/dashboard") return withCors(await handleUserDashboardApi(request, env, pathname), request);
 				if (
 					pathname.startsWith("/api/admin/") ||
 					pathname.startsWith("/admin") ||
@@ -143,6 +152,13 @@ function corsHeaders(request) {
 		"Access-Control-Max-Age": "86400",
 		"Vary": "Origin",
 	};
+}
+
+function handleDashboard(request, env, pathname, method) {
+	if ((pathname === "/" || pathname === "/dashboard" || pathname === "/dashboard/") && method === "GET") return serveDashboardPage();
+	if (pathname === "/api/user/dashboard") return handleUserDashboardApi(request, env, pathname);
+	if (pathname === "/api/v1/auth/logout" && method === "POST") return destroySession(request, env).then(() => Response.json({ success: true }));
+	return Response.json({ error: "Not Found" }, { status: 404 });
 }
 
 function corsResponse(request) {
