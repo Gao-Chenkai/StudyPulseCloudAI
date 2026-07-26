@@ -29,6 +29,14 @@ import { checkUserQuota, getMembershipPlan, recordUsage } from "./membership/mem
 import { getUserById } from "./users/users.js";
 import { handleAppealPage, handleSubmitAppeal } from "./appeals/routes.js";
 import {
+	handleSupportPage,
+	handleSupportSendCode,
+	handleSupportVerifyCode,
+	handleSupportMe,
+	handleListTickets,
+	handleCreateTicket,
+} from "./support/routes.js";
+import {
 	handleAuthSendCode,
 	handlePasswordChange,
 	handlePasswordLogin,
@@ -138,10 +146,18 @@ function handleAdmin(request, env, ctx, pathname, method) {
 // ────────────────────────────────────────────────────────────────────────────
 
 function handleSupport(request, env, pathname, method) {
+	if (pathname === "/" && method === "GET") return handleSupportPage();
 	if (pathname.startsWith("/appeal/") && method === "GET") {
 		return handleAppealPage(request, env, pathname.slice("/appeal/".length));
 	}
 	if (pathname === "/api/appeals" && method === "POST") return handleSubmitAppeal(request, env);
+	if (pathname === "/api/support/auth/send-code" && method === "POST") return handleSupportSendCode(request, env);
+	if (pathname === "/api/support/auth/verify-code" && method === "POST") return handleSupportVerifyCode(request, env);
+	if (pathname === "/api/auth/login" && method === "POST") return handlePasswordLogin(request, env);
+	if (pathname === "/api/auth/logout" && method === "POST") return handleLogoutCurrent(request, env);
+	if (pathname === "/api/support/me" && method === "GET") return handleSupportMe(request, env);
+	if (pathname === "/api/support/tickets" && method === "GET") return handleListTickets(request, env);
+	if (pathname === "/api/support/tickets" && method === "POST") return handleCreateTicket(request, env);
 	return Response.json({ error: "Not Found" }, { status: 404 });
 }
 

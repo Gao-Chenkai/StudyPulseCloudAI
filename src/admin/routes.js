@@ -232,6 +232,12 @@ export async function handleAdminApi(request, env, pathname) {
 		case pathname === "/api/admin/appeals/review" && method === "POST":
 			return handleReviewAppeal(request, env);
 
+		case pathname === "/api/admin/tickets" && method === "GET":
+			return handleListTickets(request, env);
+
+		case pathname === "/api/admin/tickets/process" && method === "POST":
+			return handleProcessTicket(request, env);
+
 		// GET /api/admin/blacklist
 		case pathname === "/api/admin/blacklist" && method === "GET":
 			return handleListBlacklist(env);
@@ -279,6 +285,34 @@ async function handleReviewAppeal(request, env) {
 	if (!result.success) return error(result.error, result.status || 400);
 	writeAdminLog(env, { admin_user_id: "admin_system", action: `appeal_${body.decision}`, details: JSON.stringify({ appeal_id: body.id }) }).catch(() => {});
 	return json({ success: true, data: result });
+}
+
+async function handleListTickets(request, env) {
+	const params = new URL(request.url).searchParams;
+	const archive = params.get("archive") === "1";
+	const search = (params.get("search") || "").trim().slice(0, 120);
+	const status = archive ? "processed" : "pending";
+	const where = search
+		? "WHERE t.status = ? AND (t.subject LIKE ? OR t.content LIKE ? OR u.email LIKE ?)"
+		: "WHERE t.status = ?";
+	const bindings = search ? [status, `%${search}%`, `%${search}%`, `%${search}%`] : [status];
+	const order = archive ? "t.processed_at DESC" : "CASE t.priority WHEN 'top' THEN 3 WHEN 'urgent' THEN 2 ELSE 1 END DESC, t.created_at ASC";
+	const limit = archive ? 200 : 200;
+	const result = await env.StudyPulseDB.prepare(`SELECT t.id,t.user_id,t.subject,t.content,t.priority,t.status,t.admin_reply,t.created_at,t.processed_at,u.email,u.membership_type FROM feedback_tickets t JOIN users u ON u.id=t.user_id ${where} ORDER BY ${order} LIMIT ${limit}`).bind(...bindings).all();
+	return json({ success: true, data: result.results });
+}
+
+async function handleProcessTicket(request, env) {
+	let body; try { body = await request.json(); } catch { return error("Invalid JSON body", 400); }
+	const id = typeof body?.id === "string" ? body.id : "";
+	const reply = typeof body?.admin_reply === "string" ? body.admin_reply.trim().slice(0, 5000) : "";
+	if (!id || !reply) return error("id 和处理内容均为必填", 400);
+	const result = await env.StudyPulseDB.prepare(`UPDATE feedback_tickets SET status='processed',admin_reply=?,processed_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'`).bind(reply, id).run();
+	if (!result.meta.changes) return error("工单不存在或已处理", 404);
+	// Keep the archive bounded to the latest 200 processed tickets.
+	await env.StudyPulseDB.prepare(`DELETE FROM feedback_tickets WHERE status='processed' AND id NOT IN (SELECT id FROM feedback_tickets WHERE status='processed' ORDER BY processed_at DESC LIMIT 200)`).run();
+	writeAdminLog(env, { admin_user_id: "admin_system", action: "process_feedback_ticket", details: JSON.stringify({ ticket_id: id }) }).catch(() => {});
+	return json({ success: true });
 }
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -66,6 +66,8 @@ function getAdminHtml(csrfToken, hasCfAccess) {
       <button class="tab" data-tab="users"><span class="nav-icon">◎</span><span>用户管理</span></button>
       <button class="tab" data-tab="blacklist"><span class="nav-icon">⊘</span><span>封禁用户</span></button>
       <button class="tab" data-tab="appeals"><span class="nav-icon">✉</span><span>申诉管理</span></button>
+      <button class="tab" data-tab="tickets"><span class="nav-icon">⚑</span><span>反馈工单</span></button>
+      <button class="tab" data-tab="ticket-archive"><span class="nav-icon">↳</span><span>└ 已处理归档</span></button>
       <button class="tab" data-tab="logs"><span class="nav-icon">≡</span><span>请求日志</span></button>
     </nav>
     <div class="sidebar-footer">
@@ -173,6 +175,18 @@ function getAdminHtml(csrfToken, hasCfAccess) {
     <div class="page-heading"><div><h2>申诉管理</h2><p>查看并处理用户的账号封禁申诉。</p></div></div>
     <div class="toolbar"><button class="btn btn-outline" onclick="loadAppeals()">刷新工单</button><select id="appealStatusFilter" class="input-sm" onchange="loadAppeals()"><option value="">全部状态</option><option value="pending">待审核</option><option value="approved">已通过</option><option value="rejected">已拒绝</option></select></div>
     <div id="appealsTableContainer" class="table-container"><p class="empty-state">点击刷新加载申诉工单</p></div>
+  </section>
+
+  <section id="tab-tickets" class="tab-content">
+    <div class="page-heading"><div><h2>反馈工单</h2><p>按顶级、紧急、普通优先级，并以提交时间排序。</p></div></div>
+    <div class="toolbar"><button class="btn btn-outline" onclick="loadTickets()">刷新工单</button><span class="filter-hint">待处理工单</span></div>
+    <div id="ticketsTableContainer" class="table-container"><p class="empty-state">加载中...</p></div>
+  </section>
+
+  <section id="tab-ticket-archive" class="tab-content">
+    <div class="page-heading"><div><h2>已处理归档</h2><p>保留最近 200 条已处理反馈，支持按邮箱、主题和内容搜索。</p></div></div>
+    <div class="toolbar"><input id="ticketArchiveSearch" class="input-sm" placeholder="搜索邮箱、主题或内容..." style="width:280px"><button class="btn btn-outline" onclick="loadTicketArchive()">搜索</button></div>
+    <div id="ticketArchiveContainer" class="table-container"><p class="empty-state">点击搜索加载归档</p></div>
   </section>
 
   <section id="tab-logs" class="tab-content">
@@ -507,7 +521,7 @@ async function apiJson(method, path, body) {
 function switchTab(name) {
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
   document.querySelectorAll(".tab-content").forEach(c => c.classList.toggle("active", c.id === "tab-" + name));
-  const titles = { dashboard: "仪表盘", keys: "Key 管理", users: "用户管理", blacklist: "封禁用户", appeals: "申诉管理", logs: "请求日志" };
+  const titles = { dashboard: "仪表盘", keys: "Key 管理", users: "用户管理", blacklist: "封禁用户", appeals: "申诉管理", tickets: "反馈工单", "ticket-archive": "已处理归档", logs: "请求日志" };
   const title = document.getElementById("pageTitle");
   if (title) title.textContent = titles[name] || "管理后台";
   const sidebar = document.getElementById("sidebar");
@@ -517,6 +531,8 @@ function switchTab(name) {
   else if (name === "users") loadUsers();
   else if (name === "blacklist") loadBlacklist();
   else if (name === "appeals") loadAppeals();
+  else if (name === "tickets") loadTickets();
+  else if (name === "ticket-archive") loadTicketArchive();
 }
 
 function toggleSidebar() {
@@ -1094,6 +1110,32 @@ async function reviewAppeal(id, decision) {
   const reply = prompt("审核回复（可选）", decision === "approved" ? "申诉已通过，账号访问权限已恢复。" : "经审核，账号封禁状态维持不变。");
   if (reply === null) return;
   try { await apiJson("POST", "/api/admin/appeals/review", { id, decision, admin_reply: reply }); showToast("工单已处理", "success"); loadAppeals(); } catch (e) { showToast("处理失败: " + e.message, "error"); }
+}
+
+async function loadTickets() {
+  const container = document.getElementById("ticketsTableContainer"); if (!container) return;
+  container.innerHTML = '<p class="empty-state">加载中...</p>';
+  try {
+    const { data } = await apiJson("GET", "/api/admin/tickets");
+    if (!data.length) { container.innerHTML = '<p class="empty-state">暂无待处理工单</p>'; return; }
+    container.innerHTML = '<table><thead><tr><th>优先级</th><th>用户</th><th>主题 / 内容</th><th>提交时间</th><th>操作</th></tr></thead><tbody>' + data.map(t => '<tr><td><span class="status-badge ' + (t.priority === "top" ? "status-disabled" : t.priority === "urgent" ? "status-exceeded" : "status-enabled") + '">' + ({normal:"普通",urgent:"紧急",top:"顶级"}[t.priority]) + '</span></td><td>' + escapeHtml(t.email) + '<br><small>' + escapeHtml((t.membership_type || "free").toUpperCase()) + '</small></td><td style="white-space:normal;min-width:300px"><strong>' + escapeHtml(t.subject) + '</strong><br>' + escapeHtml(t.content) + '</td><td>' + formatDate(t.created_at) + '</td><td><button class="btn btn-sm btn-primary" onclick="processTicket(\'' + t.id + '\')">处理</button></td></tr>').join("") + '</tbody></table>';
+  } catch (e) { container.innerHTML = '<p class="empty-state error-text">加载失败: ' + escapeHtml(e.message) + '</p>'; }
+}
+
+async function processTicket(id) {
+  const reply = prompt("请输入处理内容（会显示给用户）"); if (reply === null || !reply.trim()) return;
+  try { await apiJson("POST", "/api/admin/tickets/process", { id, admin_reply: reply }); showToast("工单已处理", "success"); loadTickets(); } catch (e) { showToast("处理失败: " + e.message, "error"); }
+}
+
+async function loadTicketArchive() {
+  const container = document.getElementById("ticketArchiveContainer"); if (!container) return;
+  container.innerHTML = '<p class="empty-state">加载中...</p>';
+  try {
+    const q = document.getElementById("ticketArchiveSearch").value.trim();
+    const { data } = await apiJson("GET", "/api/admin/tickets?archive=1&search=" + encodeURIComponent(q));
+    if (!data.length) { container.innerHTML = '<p class="empty-state">没有匹配的归档工单</p>'; return; }
+    container.innerHTML = '<table><thead><tr><th>优先级</th><th>用户</th><th>主题</th><th>处理内容</th><th>处理时间</th></tr></thead><tbody>' + data.map(t => '<tr><td>' + ({normal:"普通",urgent:"紧急",top:"顶级"}[t.priority]) + '</td><td>' + escapeHtml(t.email) + '</td><td style="white-space:normal">' + escapeHtml(t.subject) + '<br><small>' + escapeHtml(t.content) + '</small></td><td style="white-space:normal;min-width:260px">' + escapeHtml(t.admin_reply || "-") + '</td><td>' + formatDate(t.processed_at) + '</td></tr>').join("") + '</tbody></table>';
+  } catch (e) { container.innerHTML = '<p class="empty-state error-text">加载失败: ' + escapeHtml(e.message) + '</p>'; }
 }
 
 function renderBlacklistTable(list) {
