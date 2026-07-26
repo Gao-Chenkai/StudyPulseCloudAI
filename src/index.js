@@ -26,7 +26,7 @@ import { authenticateRequest } from "./auth/middleware.js";
 import { sendVerificationCode, verifyCode } from "./auth/email.js";
 import { createSession, destroySession } from "./auth/session.js";
 import { handleGitHubCallback, handleGitHubStart } from "./auth/oauth.js";
-import { renderLoginPage } from "./auth/login-page.js";
+import { renderLoginPage } from "./auth/login-page-app.js";
 import { checkUserQuota, getMembershipPlan, recordUsage } from "./membership/membership.js";
 import { getUserById } from "./users/users.js";
 import { handleAppealPage, handleSubmitAppeal } from "./appeals/routes.js";
