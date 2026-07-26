@@ -598,12 +598,23 @@ async function handleAddBlacklist(request, env) {
 	const user = await env.StudyPulseDB.prepare(
 		"SELECT id FROM users WHERE email_normalized = ? OR email = ?",
 	).bind(normalizedEmail, normalizedEmail).first();
+	let banUser = user;
+	if (!banUser) {
+		try {
+			banUser = await createUser(env, { email: normalizedEmail, role: "user", membership_type: "free" });
+		} catch (createError) {
+			if (createError?.message !== "DUPLICATE_EMAIL") throw createError;
+			banUser = await env.StudyPulseDB.prepare(
+				"SELECT id FROM users WHERE email_normalized = ? OR email = ?",
+			).bind(normalizedEmail, normalizedEmail).first();
+		}
+	}
 	let banResult = null;
-	if (user) {
+	if (banUser) {
 		const banReason = typeof reason === "string" && reason.trim()
 			? reason.trim()
 			: "违反服务条款和使用政策";
-		banResult = await createBan(user.id, banReason, env);
+		banResult = await createBan(banUser.id, banReason, env);
 		if (!banResult.success) return error(banResult.error, 400);
 	}
 
