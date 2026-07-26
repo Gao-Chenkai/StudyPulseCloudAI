@@ -11,3 +11,7 @@ export function banNotificationEmail({ email, reason, appealUrl }) {
 export function appealResultEmail({ approved, reply }) {
 	return shell(`<tr><td style="font-size:24px;font-weight:600;padding-bottom:24px">申诉审核结果</td></tr><tr><td style="font-size:16px;line-height:1.6;color:#444">您好，<br><br>您的账号封禁申诉已审核，结果为：<strong>${approved ? "通过" : "拒绝"}</strong>。${approved ? "您的账号访问权限已恢复。" : "账号封禁状态维持不变。"}${reply ? `<br><br>审核回复：${escapeHtml(reply)}` : ""}</td></tr>`);
 }
+
+export function accountDeletionEmail({ email }) {
+	return shell(`<tr><td style="font-size:24px;font-weight:600;padding-bottom:24px">账户删除申请已通过</td></tr><tr><td style="font-size:16px;line-height:1.6;color:#444">您好，<br><br>您的账户删除申请已经通过，账户已经删除。<br><br>账号：${escapeHtml(email)}<br><br>与该账户关联的登录会话、API Key 及账户数据已一并删除。</td></tr>`);
+}

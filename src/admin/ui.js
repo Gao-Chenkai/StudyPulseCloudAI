@@ -906,6 +906,7 @@ async function showUserDetail(userId) {
       '</div>' +
       '<button class="btn btn-primary" style="margin-top:12px" onclick="showUserKeyModal(\\'' + userId + '\\')">+ 为新 Key</button>' +
       (user.status === "banned" ? '<span class="status-badge status-disabled" style="margin:12px 0 0 8px">已封禁</span>' : '<button class="btn btn-sm btn-danger" style="margin:12px 0 0 8px" onclick="banUser(\\'' + userId + '\\')">封禁账号</button>') +
+      (user.role !== "admin" ? '<button class="btn btn-sm btn-danger" style="margin:12px 0 0 8px" onclick="deleteUser(\\'' + userId + '\\', ' + JSON.stringify(user.email) + ')">删除账户</button>' : '') +
       keysHtml +
       '<div class="user-sessions">' + sessionsHtml + '</div>' +
       '<style>.user-info-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; } .user-info-grid p { color: var(--text); margin-top: 4px; } .user-sessions { margin-top: 20px; } .detail-section-heading { display:flex; justify-content:space-between; align-items:center; margin: 18px 0 8px; font-weight: 600; }</style>';
@@ -918,6 +919,18 @@ async function banUser(userId) {
   const reason = prompt("请输入封禁原因");
   if (!reason || reason.trim().length < 3) return;
   try { const result = await apiJson("POST", "/api/admin/bans/create", { user_id: userId, reason: reason.trim() }); showToast(result.data?.emailSent ? "账号已封禁，通知邮件已发送" : "账号已封禁，但通知邮件发送失败: " + (result.data?.emailError || "未知错误"), result.data?.emailSent ? "success" : "error"); await showUserDetail(userId); } catch (e) { showToast("封禁失败: " + e.message, "error"); }
+}
+
+async function deleteUser(userId, email) {
+  if (!confirm('确定删除账户 "' + email + '" 吗？此操作会永久删除账户、登录会话、API Key 和关联数据，且无法恢复。')) return;
+  try {
+    const result = await apiJson("POST", "/api/admin/users/delete", { user_id: userId });
+    closeModal("modal-user");
+    loadUsers();
+    showToast(result.data?.emailSent ? "账户已删除，通知邮件已发送" : "账户已删除，但通知邮件发送失败: " + (result.data?.emailError || "未知错误"), result.data?.emailSent ? "success" : "error");
+  } catch (e) {
+    showToast("删除失败: " + e.message, "error");
+  }
 }
 
 async function revokeUserSessions(userId) {

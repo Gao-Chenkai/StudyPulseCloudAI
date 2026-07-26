@@ -27,6 +27,7 @@ import {
 	getUserApiKeys,
 	getUserUsageStats,
 	createUser,
+	deleteUserAccount,
 	updateUser,
 	writeAdminLog,
 	getAdminLogs,
@@ -35,7 +36,8 @@ import {
 	removeBlacklistedEmail,
 	listBlacklistedEmails,
 } from "./database.js";
-import { createBan, reviewAppeal } from "../appeals/service.js";
+import { createBan, reviewAppeal, sendTransactionalEmail } from "../appeals/service.js";
+import { accountDeletionEmail } from "../email/templates.js";
 
 // ────────────────────────────────────────────────────────────────────────────
 // CSRF 保护
@@ -212,6 +214,10 @@ export async function handleAdminApi(request, env, pathname) {
 		// POST /api/admin/users/create
 		case pathname === "/api/admin/users/create" && method === "POST":
 			return handleCreateUser(request, env);
+
+		// POST /api/admin/users/delete
+		case pathname === "/api/admin/users/delete" && method === "POST":
+			return handleDeleteUser(request, env);
 
 		// POST /api/admin/users/revoke-sessions
 		case pathname === "/api/admin/users/revoke-sessions" && method === "POST":
@@ -529,6 +535,40 @@ async function handleCreateUser(request, env) {
 		}
 		throw err;
 	}
+}
+
+async function handleDeleteUser(request, env) {
+	let body;
+	try {
+		body = await request.json();
+	} catch {
+		return error("Invalid JSON body", 400);
+	}
+
+	const { user_id: userId } = body;
+	if (!userId || typeof userId !== "string") {
+		return error("user_id is required (string)", 400);
+	}
+
+	const result = await deleteUserAccount(env, userId);
+	if (!result.success) return error(result.error, result.error === "User not found" ? 404 : 400);
+
+	const email = await sendTransactionalEmail({
+		to: result.email,
+		subject: "[StudyPulse Cloud AI] 账户删除申请已通过",
+		html: accountDeletionEmail({ email: result.email }),
+	}, env);
+	writeAdminLog(env, {
+		admin_user_id: "admin_system",
+		action: "delete_user",
+		target_user_id: userId,
+		details: JSON.stringify({ email: result.email, email_sent: email.success }),
+	}).catch(() => {});
+
+	return json({
+		success: true,
+		data: { emailSent: email.success, emailError: email.success ? null : email.error },
+	});
 }
 
 async function handleUserStats(env, userId) {

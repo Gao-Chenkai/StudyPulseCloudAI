@@ -301,6 +301,29 @@ describe("Admin API - 踢用户下线", () => {
 	});
 });
 
+describe("Admin API - 删除用户", () => {
+	it("删除用户及关联数据，并返回邮件发送状态", async () => {
+		const userId = crypto.randomUUID();
+		const email = `${userId}@example.com`;
+		await env.StudyPulseDB.prepare("INSERT INTO users (id,email,email_normalized,email_verified) VALUES (?,?,?,1)").bind(userId, email, email).run();
+		await env.StudyPulseDB.prepare("INSERT INTO api_keys (key_hash,name,user_id) VALUES (?,?,?)").bind(await sha256Hex(`delete-${userId}`), "待删除 Key", userId).run();
+		await env.StudyPulseDB.prepare("INSERT INTO usage_records (user_id,total_tokens) VALUES (?,?)").bind(userId, 123).run();
+
+		const res = await adminFetch("/api/admin/users/delete", { method: "POST", body: { user_id: userId }, csrfCookie: "test-csrf" });
+		expect(res.status).toBe(200);
+		expect((await res.json()).data.emailSent).toBe(false);
+		expect(await env.StudyPulseDB.prepare("SELECT id FROM users WHERE id=?").bind(userId).first()).toBeNull();
+		expect(await env.StudyPulseDB.prepare("SELECT id FROM api_keys WHERE user_id=?").bind(userId).first()).toBeNull();
+		expect(await env.StudyPulseDB.prepare("SELECT user_id FROM usage_records WHERE user_id=?").bind(userId).first()).toBeNull();
+	});
+
+	it("不允许删除管理员账号", async () => {
+		const res = await adminFetch("/api/admin/users/delete", { method: "POST", body: { user_id: seedUserId }, csrfCookie: "test-csrf" });
+		expect(res.status).toBe(400);
+		expect((await res.json()).error).toBe("Admin users cannot be deleted");
+	});
+});
+
 describe("Admin API - rawKey 安全性", () => {
 	it("创建 Key 时返回 rawKey", async () => {
 		const res = await adminFetch("/api/admin/keys/create", {

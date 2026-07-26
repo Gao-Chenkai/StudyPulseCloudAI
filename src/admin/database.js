@@ -380,6 +380,33 @@ export async function listUsers(env, filters = {}) {
 }
 
 /**
+ * 永久删除用户及其关联账户数据。管理员操作日志不删除，以保留审计记录。
+ */
+export async function deleteUserAccount(env, userId) {
+	const user = await env.StudyPulseDB.prepare(
+		"SELECT id, email, email_normalized, role FROM users WHERE id = ?",
+	).bind(userId).first();
+	if (!user) return { success: false, error: "User not found" };
+	if (user.role === "admin") return { success: false, error: "Admin users cannot be deleted" };
+
+	const db = env.StudyPulseDB;
+	await db.batch([
+		db.prepare("DELETE FROM request_logs WHERE user_id = ? OR api_key_id IN (SELECT id FROM api_keys WHERE user_id = ?)").bind(userId, userId),
+		db.prepare("DELETE FROM usage_records WHERE user_id = ?").bind(userId),
+		db.prepare("DELETE FROM api_keys WHERE user_id = ?").bind(userId),
+		db.prepare("DELETE FROM sessions WHERE user_id = ?").bind(userId),
+		db.prepare("DELETE FROM user_credentials WHERE user_id = ?").bind(userId),
+		db.prepare("DELETE FROM email_verification_codes WHERE email_normalized = ? OR lower(trim(email)) = ?").bind(user.email_normalized, user.email_normalized),
+		db.prepare("DELETE FROM appeals WHERE user_id = ?").bind(userId),
+		db.prepare("DELETE FROM bans WHERE user_id = ?").bind(userId),
+		db.prepare("DELETE FROM blacklisted_emails WHERE lower(email) = ?").bind(user.email_normalized),
+		db.prepare("DELETE FROM users WHERE id = ?").bind(userId),
+	]);
+
+	return { success: true, email: user.email };
+}
+
+/**
  * 获取用户详情（含统计）。
  */
 export async function getUserDetail(env, userId) {
