@@ -40,4 +40,19 @@ describe("account bans and appeals", () => {
 		const submit = await SELF.fetch("http://localhost/api/appeals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: `  ${ban.data.appealToken}  `, content: "  误判  " }) });
 		expect(submit.status).toBe(201);
 	});
+
+	it("removes a user-detail ban from the blacklist and restores the account", async () => {
+		const userId = crypto.randomUUID();
+		const email = `${userId}@example.com`;
+		await env.StudyPulseDB.prepare("INSERT INTO users (id,email,email_normalized,email_verified,status) VALUES (?,?,?,?, 'active')").bind(userId, email, email, 1).run();
+		const banResponse = await SELF.fetch("http://localhost/api/admin/bans/create", { method: "POST", headers, body: JSON.stringify({ user_id: userId, reason: "测试原因" }) });
+		expect(banResponse.status).toBe(200);
+
+		const remove = await SELF.fetch("http://localhost/api/admin/blacklist/remove", { method: "POST", headers, body: JSON.stringify({ email }) });
+		expect(remove.status).toBe(200);
+		const user = await env.StudyPulseDB.prepare("SELECT status FROM users WHERE id=?").bind(userId).first();
+		expect(user.status).toBe("active");
+		const ban = await env.StudyPulseDB.prepare("SELECT status FROM bans WHERE user_id=? ORDER BY created_at DESC LIMIT 1").bind(userId).first();
+		expect(ban.status).toBe("cancelled");
+	});
 });

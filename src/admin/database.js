@@ -114,12 +114,23 @@ export async function blacklistEmail(email, reason, env) {
  * @returns {Promise<boolean>}
  */
 export async function removeBlacklistedEmail(email, env) {
-	const { meta } = await env.StudyPulseDB.prepare(
-		"DELETE FROM blacklisted_emails WHERE email = ?",
-	)
-		.bind(email.trim().toLowerCase())
-		.run();
-	return meta.changes > 0;
+	const normalized = email.trim().toLowerCase();
+	const user = await env.StudyPulseDB.prepare(
+		"SELECT id FROM users WHERE email_normalized = ? OR lower(email) = ?",
+	).bind(normalized, normalized).first();
+
+	const db = env.StudyPulseDB;
+	const results = await db.batch([
+		db.prepare("DELETE FROM blacklisted_emails WHERE lower(email) = ?").bind(normalized),
+		...(user
+			? [
+				db.prepare("UPDATE bans SET status = 'cancelled' WHERE user_id = ? AND status = 'active'").bind(user.id),
+				db.prepare("UPDATE users SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'banned'").bind(user.id),
+			]
+			: []),
+	]);
+
+	return results.some((result) => result.meta?.changes > 0);
 }
 
 /**
