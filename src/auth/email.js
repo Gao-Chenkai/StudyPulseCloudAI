@@ -22,11 +22,16 @@ import { isEmailBlacklisted } from "../admin/database.js";
  * @param {{ StudyPulseDB: D1Database, RESEND_API_KEY?: string }} env
  * @returns {Promise<{success: boolean, error?: string}>}
  */
-export async function sendVerificationCode(rawEmail, env) {
+export const VERIFICATION_PURPOSES = new Set(["register", "login", "reset_password", "change_email"]);
+
+export async function sendVerificationCode(rawEmail, env, purpose = "login") {
 	// 1. 校验邮箱格式（简单正则）
 	const email = rawEmail.trim().toLowerCase();
 	if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
 		return { success: false, error: "Invalid email format" };
+	}
+	if (!VERIFICATION_PURPOSES.has(purpose)) {
+		return { success: false, error: "Invalid verification purpose" };
 	}
 
 	// 1.5 检查邮箱是否在黑名单中
@@ -37,11 +42,11 @@ export async function sendVerificationCode(rawEmail, env) {
 	// 2. 1 分钟内不可重复发送
 	const recent = await env.StudyPulseDB.prepare(
 		`SELECT created_at FROM email_verification_codes
-		  WHERE email = ?
+		  WHERE email_normalized = ? AND purpose = ?
 		  ORDER BY created_at DESC
 		  LIMIT 1`,
 	)
-		.bind(email)
+		.bind(email, purpose)
 		.first();
 
 	if (recent) {
@@ -63,10 +68,11 @@ export async function sendVerificationCode(rawEmail, env) {
 
 	// 5. INSERT：delivery_status='pending'
 	await env.StudyPulseDB.prepare(
-		`INSERT INTO email_verification_codes (email, code, used, attempts, delivery_status, expires_at)
-		 VALUES (?, ?, 0, 0, 'pending', ?)`,
+		`INSERT INTO email_verification_codes
+			 (email, email_normalized, code, purpose, used, attempts, delivery_status, expires_at)
+		 VALUES (?, ?, ?, ?, 0, 0, 'pending', ?)`,
 	)
-		.bind(email, code, expiresAt)
+		.bind(email, email, code, purpose, expiresAt)
 		.run();
 
 	// 6. 调用 Resend 发送邮件
@@ -77,9 +83,9 @@ export async function sendVerificationCode(rawEmail, env) {
 		await env.StudyPulseDB.prepare(
 			`UPDATE email_verification_codes
 			    SET delivery_status = 'sent'
-			  WHERE email = ? AND code = ? AND delivery_status = 'pending'`,
+			  WHERE email_normalized = ? AND purpose = ? AND code = ? AND delivery_status = 'pending'`,
 		)
-			.bind(email, code)
+			.bind(email, purpose, code)
 			.run();
 
 		return { success: true };
@@ -90,9 +96,9 @@ export async function sendVerificationCode(rawEmail, env) {
 	await env.StudyPulseDB.prepare(
 		`UPDATE email_verification_codes
 		    SET delivery_status = 'failed', used = 1
-		  WHERE email = ? AND code = ? AND delivery_status = 'pending'`,
+		  WHERE email_normalized = ? AND purpose = ? AND code = ? AND delivery_status = 'pending'`,
 	)
-		.bind(email, code)
+		.bind(email, purpose, code)
 		.run();
 
 	return { success: false, error: "Email delivery failed" };
@@ -112,99 +118,77 @@ export async function sendVerificationCode(rawEmail, env) {
  * @param {{ StudyPulseDB: D1Database }} env
  * @returns {Promise<{success: boolean, error?: string, userId?: string}>}
  */
-export async function verifyCode(rawEmail, code, env) {
+export async function consumeVerificationCode(rawEmail, code, env, purpose = "login") {
 	const email = rawEmail.trim().toLowerCase();
-
-	// 1. 按邮箱查最新一条记录（不按 code 筛选，否则错误验证码无法累计 attempts）
+	if (!VERIFICATION_PURPOSES.has(purpose)) {
+		return { success: false, error: "Invalid verification code" };
+	}
 	const record = await env.StudyPulseDB.prepare(
 		`SELECT id, code, used, attempts, delivery_status, expires_at
 		   FROM email_verification_codes
-		  WHERE email = ?
-		  ORDER BY created_at DESC
+		  WHERE email_normalized = ? AND purpose = ?
+		  ORDER BY created_at DESC, id DESC
 		  LIMIT 1`,
-	)
-		.bind(email)
-		.first();
+	).bind(email, purpose).first();
 
-	// 2. 未找到记录
-	if (!record) {
-		console.error("verifyCode: no record found for email:", email);
+	if (!record || record.used === 1 || record.delivery_status === "failed") {
 		return { success: false, error: "Invalid verification code" };
 	}
-
-	// 3. 已使用
-	if (record.used === 1) {
-		console.error("verifyCode: code already used for email:", email);
-		return { success: false, error: "Verification code already used" };
-	}
-
-	// 4. 错误次数过多
 	if (record.attempts >= 5) {
-		// 标记失效
 		await env.StudyPulseDB.prepare(
-			"UPDATE email_verification_codes SET used = 1 WHERE id = ?",
-		)
-			.bind(record.id)
-			.run();
-		console.error("verifyCode: code locked for email:", email, "attempts:", record.attempts);
+			"UPDATE email_verification_codes SET used = 1 WHERE id = ? AND used = 0",
+		).bind(record.id).run();
 		return { success: false, error: "Verification code locked due to too many attempts" };
 	}
-
-	// 5. 已过期
-	const now = new Date();
-	const expiresAt = new Date(record.expires_at);
-	if (now >= expiresAt) {
-		console.error("verifyCode: code expired for email:", email);
+	if (Date.now() >= new Date(record.expires_at).getTime()) {
 		return { success: false, error: "Verification code expired" };
 	}
-
-	// 6. code 不匹配 → attempts + 1
-	if (record.code !== code) {
+	if (typeof code !== "string" || record.code !== code) {
 		await env.StudyPulseDB.prepare(
-			"UPDATE email_verification_codes SET attempts = attempts + 1 WHERE id = ?",
-		)
-			.bind(record.id)
-			.run();
-		console.error("verifyCode: invalid code for email:", email, "attempts:", record.attempts + 1);
+			"UPDATE email_verification_codes SET attempts = attempts + 1 WHERE id = ? AND used = 0",
+		).bind(record.id).run();
 		return { success: false, error: "Invalid verification code" };
 	}
 
-	// 7. code 匹配 → 标记已使用
-	await env.StudyPulseDB.prepare(
-		"UPDATE email_verification_codes SET used = 1 WHERE id = ?",
-	)
-		.bind(record.id)
-		.run();
+	// The conditional update makes code consumption idempotent under concurrent requests.
+	const claimed = await env.StudyPulseDB.prepare(
+		"UPDATE email_verification_codes SET used = 1 WHERE id = ? AND used = 0",
+	).bind(record.id).run();
+	if (!claimed.meta || claimed.meta.changes !== 1) {
+		return { success: false, error: "Invalid verification code" };
+	}
+	return { success: true, email, recordId: record.id, purpose };
+}
 
-	// 8. 查 users 表
+export async function verifyCode(rawEmail, code, env, purpose = "login") {
+	const consumed = await consumeVerificationCode(rawEmail, code, env, purpose);
+	if (!consumed.success) return consumed;
+
+	// Login codes retain the original behavior: verify the email and create the
+	// same user identity when it does not exist yet.
 	const existingUser = await env.StudyPulseDB.prepare(
-		"SELECT id, email_verified FROM users WHERE email = ?",
-	)
-		.bind(email)
-		.first();
+		"SELECT id, email_verified FROM users WHERE email_normalized = ?",
+	).bind(consumed.email).first();
 
 	if (existingUser) {
-		// 8a. 用户存在 → 更新 email_verified
 		if (existingUser.email_verified !== 1) {
 			await env.StudyPulseDB.prepare(
 				"UPDATE users SET email_verified = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-			)
-				.bind(existingUser.id)
-				.run();
+			).bind(existingUser.id).run();
 		}
 		return { success: true, userId: existingUser.id };
 	}
 
-	// 8b. 用户不存在 → 创建新用户
 	const userId = crypto.randomUUID();
 	await env.StudyPulseDB.prepare(
-		`INSERT INTO users (id, email, email_verified, role, membership_type)
-		 VALUES (?, ?, 1, 'user', 'free')`,
-	)
-		.bind(userId, email)
-		.run();
-
-	return { success: true, userId };
+		`INSERT OR IGNORE INTO users
+			 (id, email, email_normalized, email_verified, role, membership_type)
+		 VALUES (?, ?, ?, 1, 'user', 'free')`,
+	).bind(userId, consumed.email, consumed.email).run();
+	const actualUser = await env.StudyPulseDB.prepare(
+		"SELECT id FROM users WHERE email_normalized = ?",
+	).bind(consumed.email).first();
+	return { success: true, userId: actualUser?.id || userId };
 }
 
 // ────────────────────────────────────────────────────────────────────────────

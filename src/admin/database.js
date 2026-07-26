@@ -490,9 +490,9 @@ export async function createUser(env, params) {
 
 	// 检查邮箱是否已存在
 	const existing = await env.StudyPulseDB.prepare(
-		"SELECT id FROM users WHERE email = ?",
+		"SELECT id FROM users WHERE email_normalized = ?",
 	)
-		.bind(email)
+		.bind(email.trim().toLowerCase())
 		.first();
 
 	if (existing) {
@@ -504,10 +504,10 @@ export async function createUser(env, params) {
 	const membership = params.membership_type || "free";
 
 	await env.StudyPulseDB.prepare(
-		`INSERT INTO users (id, email, email_verified, role, membership_type)
-		 VALUES (?, ?, 1, ?, ?)`,
+		`INSERT INTO users (id, email, email_normalized, email_verified, role, membership_type)
+		 VALUES (?, ?, ?, 1, ?, ?)`,
 	)
-		.bind(userId, email, role, membership)
+		.bind(userId, email, email, role, membership)
 		.run();
 
 	return { id: userId, email };

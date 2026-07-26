@@ -39,9 +39,9 @@ export async function getUserByEmail(email, env) {
 		        membership_expires_at, github_id, username, avatar_url,
 		        created_at, updated_at
 		   FROM users
-		  WHERE email = ?`,
+		  WHERE email_normalized = ?`,
 	)
-		.bind(email)
+		.bind(email.trim().toLowerCase())
 		.first();
 }
 

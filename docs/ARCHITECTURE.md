@@ -216,6 +216,31 @@ Permissions-Policy: camera=(), microphone=(), geolocation=()
 
 ---
 
+### 3.6 密码认证与统一身份上下文
+
+`migrations/0014_add_password_auth.sql` 为已有 D1 数据库增加：
+
+- `users.email_normalized` 唯一索引，所有邮箱入口使用 `trim().toLowerCase()`；原始 `email` 保留用于展示。
+- `user_credentials`，以 `user_id` 为主键，保存 PBKDF2-HMAC-SHA-256 派生结果、随机 salt、算法、迭代次数、失败次数和短期锁定时间。
+- `email_verification_codes.purpose` 与 `email_normalized`，支持 `register`、`login`、`reset_password`、`change_email`。
+- `sessions.revoked_at`、设备信息、用户代理和脱敏 IP 哈希；旧 Session 通过 `revoked_at` 撤销而不是删除。
+- `auth_rate_limits`，只保存作用域化 key 的 SHA-256，不保存原始 IP 或邮箱。
+
+密码验证由 `src/security/password.js` 使用 Workers Web Crypto PBKDF2 实现，派生结果至少 32 bytes，salt 为 16 bytes，并使用恒定时间字节比较。成功登录发现迭代次数过低时自动重新哈希。
+
+所有公开 AI 请求继续进入同一个 `authenticateRequest()`，返回统一上下文：
+
+```js
+{
+  userId,
+  authType: "session" | "api_key",
+  sessionId: null,
+  apiKeyId: null
+}
+```
+
+账号管理接口通过 `requireSessionAuth()` 拒绝 API Key；AI 额度、会员和 `usage_records` 仍只按 `userId` 处理。密码修改会撤销用户全部旧 Session 并签发一个新 Session；密码重置会撤销全部 Session 但不自动登录。API Key 不因密码重置而撤销。
+
 ## 4. LLM 转发实现
 
 ### 4.1 Provider 架构

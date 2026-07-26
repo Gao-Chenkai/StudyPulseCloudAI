@@ -26,6 +26,17 @@ import { sendVerificationCode, verifyCode } from "./auth/email.js";
 import { createSession, destroySession } from "./auth/session.js";
 import { checkUserQuota, getMembershipPlan, recordUsage } from "./membership/membership.js";
 import { getUserById } from "./users/users.js";
+import {
+	handleAuthSendCode,
+	handlePasswordChange,
+	handlePasswordLogin,
+	handlePasswordReset,
+	handlePasswordResetRequest,
+	handleRegisterVerify,
+	handleLogoutCurrent,
+	handleLogoutAll,
+	handleMe,
+} from "./auth/routes.js";
 
 // 服务元信息
 const SERVICE_META = {
@@ -122,6 +133,35 @@ function handlePublicApi(request, env, ctx, pathname, method) {
 		return handleLogout(request, env);
 	}
 
+	// 新版统一认证 API（保留上面的旧路径和响应格式）
+	if (pathname === "/v1/auth/email/send" && method === "POST") {
+		return handleAuthSendCode(request, env);
+	}
+	if (pathname === "/v1/auth/login" && method === "POST") {
+		return handlePasswordLogin(request, env);
+	}
+	if (pathname === "/v1/auth/register/verify" && method === "POST") {
+		return handleRegisterVerify(request, env);
+	}
+	if (pathname === "/v1/auth/password/request-reset" && method === "POST") {
+		return handlePasswordResetRequest(request, env);
+	}
+	if (pathname === "/v1/auth/password/reset" && method === "POST") {
+		return handlePasswordReset(request, env);
+	}
+	if (pathname === "/v1/auth/password/change" && method === "POST") {
+		return handlePasswordChange(request, env);
+	}
+	if (pathname === "/v1/auth/logout" && method === "POST") {
+		return handleLogoutCurrent(request, env);
+	}
+	if (pathname === "/v1/auth/logout-all" && method === "POST") {
+		return handleLogoutAll(request, env);
+	}
+	if (pathname === "/v1/auth/me" && method === "GET") {
+		return handleMe(request, env);
+	}
+
 	// 用户信息
 	if (pathname === "/user/profile" && method === "GET") {
 		return handleUserProfile(request, env);
@@ -168,7 +208,7 @@ async function handleSendCode(request, env) {
 		return Response.json({ error: "email is required" }, { status: 400 });
 	}
 
-	const result = await sendVerificationCode(email, env);
+	const result = await sendVerificationCode(email, env, body.purpose || "login");
 
 	if (!result.success) {
 		const status = result.error === "Please wait before requesting a new code"

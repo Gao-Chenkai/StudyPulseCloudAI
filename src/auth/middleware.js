@@ -14,9 +14,8 @@ import { validateSession } from "./session.js";
  * 统一鉴权：同时支持 Session Token 和 API Key。
  *
  * 返回格式：
- *   { ok: true, userId: "xxx", apiKeyId: null }     — Session 鉴权
- *   { ok: true, userId: "xxx", apiKeyId: 123 }       — API Key + 绑定用户
- *   { ok: true, userId: null, apiKeyId: 123 }        — API Key 无绑定用户
+ *   { ok: true, userId: "xxx", authType: "session", sessionId, apiKeyId: null }
+ *   { ok: true, userId: "xxx", authType: "api_key", sessionId: null, apiKeyId: 123 }
  *   { ok: false, response: Response }                 — 鉴权失败
  *
  * @param {Request} request
@@ -37,7 +36,13 @@ export async function authenticateRequest(request, env) {
 		if (bearerToken.startsWith("sp_sess_")) {
 			const sessionResult = await validateSession(request, env);
 			if (sessionResult.ok) {
-				return { ok: true, userId: sessionResult.userId, apiKeyId: null };
+				return {
+					ok: true,
+					userId: sessionResult.userId,
+					authType: "session",
+					sessionId: sessionResult.sessionId,
+					apiKeyId: null,
+				};
 			}
 			// Session 校验失败 → 直接返回错误，不回退到 API Key
 			return {
@@ -66,6 +71,8 @@ export async function authenticateRequest(request, env) {
 			return {
 				ok: true,
 				userId: apiKey.user_id || null,
+				authType: "api_key",
+				sessionId: null,
 				apiKeyId: apiKey.id,
 			};
 		}
@@ -106,10 +113,25 @@ async function authenticateByHeader(rawKey, request, env) {
 		return {
 			ok: true,
 			userId: result.apiKey.user_id || null,
+			authType: "api_key",
+			sessionId: null,
 			apiKeyId: result.apiKey.id,
 		};
 	}
 
 	// API Key 鉴权失败 → 返回 null（由调用者决定是否回退）
 	return null;
+}
+
+/** Session-only guard for account-management endpoints. */
+export async function requireSessionAuth(request, env) {
+	const auth = await authenticateRequest(request, env);
+	if (!auth.ok) return auth;
+	if (auth.authType !== "session") {
+		return {
+			ok: false,
+			response: Response.json({ success: false, error: { code: "FORBIDDEN", message: "该接口仅支持 Session Token" } }, { status: 403 }),
+		};
+	}
+	return auth;
 }

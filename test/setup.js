@@ -22,6 +22,8 @@ import migration8Sql from "../migrations/0008_alter_request_logs.sql?raw";
 import migration9Sql from "../migrations/0009_create_usage_records.sql?raw";
 import migration10Sql from "../migrations/0010_create_admin_logs.sql?raw";
 import migration11Sql from "../migrations/0011_seed_membership_plans.sql?raw";
+import migration13Sql from "../migrations/0013_make_api_key_id_nullable.sql?raw";
+import migration14Sql from "../migrations/0014_add_password_auth.sql?raw";
 
 const allMigrations = [
 	migration1Sql,  // 0001: api_keys
@@ -35,6 +37,8 @@ const allMigrations = [
 	migration9Sql,  // 0009: usage_records
 	migration10Sql, // 0010: admin_logs
 	migration11Sql, // 0011: seed membership_plans
+	migration13Sql, // 0013: nullable request_logs.api_key_id
+	migration14Sql, // 0014: password auth, normalized email, revocation, rate limits
 ];
 
 // 与 v0.2 内存 Set 时期一致的 Beta Key，保证旧测试不破
@@ -59,6 +63,19 @@ beforeAll(async () => {
 		}
 	}
 
+	// 0003 is intentionally a production no-op because the live API-key
+	// columns predate that migration. Keep the in-memory fixture equivalent.
+	for (const statement of [
+		"ALTER TABLE api_keys ADD COLUMN limit_type TEXT NOT NULL DEFAULT 'count'",
+		"ALTER TABLE api_keys ADD COLUMN token_count INTEGER NOT NULL DEFAULT 0",
+	]) {
+		try {
+			await env.StudyPulseDB.prepare(statement).run();
+		} catch (error) {
+			if (!/duplicate column name/i.test(error?.message || "")) throw error;
+		}
+	}
+
 	// 2. 种子 Beta Key：只存哈希，原始 Key 不进 DB
 	const hash = await sha256Hex(BETA_TEST_KEY);
 	await env.StudyPulseDB.prepare(
@@ -71,8 +88,9 @@ beforeAll(async () => {
 	// 3. 创建一个 seed 用户用于测试
 	const seedUserId = crypto.randomUUID();
 	await env.StudyPulseDB.prepare(
-		`INSERT OR IGNORE INTO users (id, email, email_verified, role, membership_type)
-		 VALUES (?, 'test@studypulse.app', 1, 'admin', 'pro')`,
+		`INSERT OR IGNORE INTO users
+			 (id, email, email_normalized, email_verified, role, membership_type)
+		 VALUES (?, 'test@studypulse.app', 'test@studypulse.app', 1, 'admin', 'pro')`,
 	)
 		.bind(seedUserId)
 		.run();

@@ -147,7 +147,79 @@ X-API-Key: sp_beta_<hex>
 
 > 新用户首次登录自动创建账号（role=user, membership=free）。
 
-### 4.3 退出登录
+### 4.3 密码认证 API（`/v1/auth/*`）
+
+密码认证与邮箱验证码、Session、API Key 共用同一个 `users.id`，不会产生第二套会员、额度或使用记录体系。
+
+密码策略为 10–128 个 Unicode 字符；允许空格、中文和特殊字符，但不能是空字符串或全空白。Worker 使用 Web Crypto PBKDF2-HMAC-SHA-256，每个用户使用独立随机 salt，D1 只保存派生结果。默认迭代次数为 `120000`，可通过 `PASSWORD_PBKDF2_ITERATIONS` 提高；成功登录时自动重新哈希旧参数。
+
+#### `POST /v1/auth/email/send`
+
+保留旧的 `POST /auth/email/send`。新客户端可以通过 `purpose` 请求注册验证码：
+
+```json
+{"email":"user@example.com","purpose":"register"}
+```
+
+`purpose` 支持 `register`、`login`、`reset_password`、`change_email`。
+
+#### `POST /v1/auth/register/verify`
+
+```json
+{"email":"user@example.com","code":"123456","password":"用户设置的密码","device_name":"iPhone"}
+```
+
+成功返回：
+
+```json
+{"success":true,"data":{"session_token":"sp_sess_xxx","expires_at":"2026-08-25T00:00:00.000Z","user":{"id":"usr_xxx","email":"user@example.com"}}}
+```
+
+验证码只可使用一次；已存在密码凭证时返回 `409 EMAIL_ALREADY_REGISTERED`。
+
+#### `POST /v1/auth/login`
+
+```json
+{"email":"user@example.com","password":"用户密码","device_name":"Gao Chenkai’s iPhone"}
+```
+
+邮箱不存在、未设置密码、密码错误和账号锁定统一返回 `401 INVALID_CREDENTIALS`：
+
+```json
+{"success":false,"error":{"code":"INVALID_CREDENTIALS","message":"邮箱或密码错误"}}
+```
+
+#### `POST /v1/auth/password/request-reset`
+
+请求 `{"email":"user@example.com"}`。无论邮箱是否存在均返回：
+
+```json
+{"success":true,"message":"如果该邮箱已注册，我们已经发送验证码"}
+```
+
+#### `POST /v1/auth/password/reset`
+
+请求 `{"email":"user@example.com","code":"123456","new_password":"新的密码"}`。成功后更新/创建密码凭证、撤销该用户全部旧 Session，并返回成功但不自动登录。API Key 不受影响。
+
+#### `POST /v1/auth/password/change`
+
+需要 `Authorization: Bearer sp_sess_xxx`，请求体为 `{"current_password":"旧密码","new_password":"新密码"}`。成功后撤销全部旧 Session，并返回新的 `session_token`；当前设备也必须改用新 Token。当前密码错误返回 `401 INVALID_CREDENTIALS`，新旧密码相同返回 `409 PASSWORD_UNCHANGED`。
+
+#### `POST /v1/auth/logout` / `POST /v1/auth/logout-all`
+
+两者都只接受 Session Token。前者撤销当前设备，后者撤销用户全部设备。成功响应为 `{"success":true,"data":{}}`。
+
+#### `GET /v1/auth/me`
+
+只接受 Session Token，返回用户基础信息和登录方式：
+
+```json
+{"success":true,"data":{"user":{"id":"usr_xxx","email":"user@example.com"},"login_methods":["email_code","password"],"auth_type":"session"}}
+```
+
+不会返回密码 hash/salt、验证码、完整 Session Token 或 API Key 明文。
+
+### 4.4 退出登录（兼容旧路径）
 
 #### `POST /auth/logout`
 
@@ -183,6 +255,11 @@ Authorization: Bearer sp_sess_xxx
 | `429` | `Monthly token limit exceeded` | 会员月 Token 额度用尽 |
 | `500` | `Server not configured: MINIMAX_API_KEY missing` | 服务端未配置上游 AI Key |
 | `502` | `AI request failed` | 上游 MiniMax 调用失败 |
+| `400` | `INVALID_EMAIL` / `WEAK_PASSWORD` / `INVALID_VERIFICATION_CODE` | 新认证接口参数或验证码错误 |
+| `401` | `INVALID_CREDENTIALS` / `SESSION_EXPIRED` | 密码错误、未设置密码或 Session 已失效 |
+| `403` | `FORBIDDEN` | 账号管理接口使用了 API Key |
+| `409` | `EMAIL_ALREADY_REGISTERED` / `PASSWORD_UNCHANGED` | 重复注册或新旧密码相同 |
+| `429` | `RATE_LIMITED` | 登录、验证码尝试或发送频率超限 |
 
 ---
 
@@ -330,3 +407,47 @@ App 用户和绑定用户的 API Key 共享统一的会员额度体系：
 | `0.4-beta` | 额度控制, 请求日志, Key 管理 |
 | `0.5-beta` | SSE 流式传输, 过期校验, Token 配额 |
 | `0.6-beta` | SaaS 用户体系（邮箱登录 + Session Token + 会员系统 + 双鉴权） |
+| `0.7-beta` | 邮箱 + 密码登录、密码重置、Session 撤销和统一认证上下文 |
+
+## 11. 配置、测试与发布
+
+必需 Secret 保持不变：`MINIMAX_API_KEY`、`RESEND_API_KEY`；管理员仍使用 `ADMIN_API_TOKEN`。可选配置：`PASSWORD_PBKDF2_ITERATIONS`，默认 `120000`，应在提高后保留旧值兼容一段时间以便成功登录自动重哈希。
+
+本地测试：
+
+```bash
+npm install
+npm test -- --run
+```
+
+D1 迁移由 GitHub 绑定的 Cloudflare 部署流程应用。不要在本地执行 `npx wrangler deploy`；完成代码后使用：
+
+```bash
+git add .
+git commit -m "feat: add password authentication"
+git push
+```
+
+示例：
+
+```bash
+# 密码登录
+curl -X POST https://spapi.chenkai.space/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com","password":"用户密码","device_name":"iPhone"}'
+
+# 申请重置验证码（邮箱不存在时响应相同）
+curl -X POST https://spapi.chenkai.space/v1/auth/password/request-reset \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com"}'
+
+# 查看当前用户
+curl https://spapi.chenkai.space/v1/auth/me \
+  -H 'Authorization: Bearer sp_sess_xxx'
+
+# 修改密码；成功后必须使用响应里的新 Session Token
+curl -X POST https://spapi.chenkai.space/v1/auth/password/change \
+  -H 'Authorization: Bearer sp_sess_xxx' \
+  -H 'Content-Type: application/json' \
+  -d '{"current_password":"旧密码","new_password":"新密码"}'
+```
