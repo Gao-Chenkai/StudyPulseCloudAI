@@ -188,7 +188,7 @@ export async function handleAdminApi(request, env, pathname) {
 
 		// GET /api/admin/users/:id
 		case pathname.startsWith("/api/admin/users/") && method === "GET": {
-			const userId = pathname.slice("/api/admin/users/".length);
+			const userId = decodeURIComponent(pathname.slice("/api/admin/users/".length));
 			if (pathname.endsWith("/stats")) {
 				const uid = userId.slice(0, -6); // remove "/stats"
 				return handleUserStats(env, uid);

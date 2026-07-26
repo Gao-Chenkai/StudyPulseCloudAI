@@ -841,10 +841,17 @@ async function showUserDetail(userId) {
   document.getElementById("userDetailContent").innerHTML = '<p class="empty-state">加载中...</p>';
   document.getElementById("modal-user").style.display = "flex";
   try {
-    const { data: user } = await apiJson("GET", "/api/admin/users/" + userId);
-    const { data: keys } = await apiJson("GET", "/api/admin/users/" + userId + "/keys");
-    const { data: sessions } = await apiJson("GET", "/api/admin/users/" + userId + "/sessions");
-    const { data: stats } = await apiJson("GET", "/api/admin/users/" + userId + "/stats");
+    const userPath = "/api/admin/users/" + encodeURIComponent(userId);
+    const { data: user } = await apiJson("GET", userPath);
+    const { data: keys } = await apiJson("GET", userPath + "/keys");
+    let sessions = [];
+    try {
+      ({ data: sessions } = await apiJson("GET", userPath + "/sessions"));
+    } catch (sessionError) {
+      // Session 列表不是用户详情的核心数据，兼容旧数据库/部署时不阻断详情加载。
+      console.warn("Failed to load user sessions", sessionError);
+    }
+    const { data: stats } = await apiJson("GET", userPath + "/stats");
 
     const roleBadge = user.role === "admin" ? "管理员" : "用户";
     const memberLabels = { free: "Free", plus: "Plus", pro: "Pro" };
