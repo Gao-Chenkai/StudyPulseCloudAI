@@ -2,7 +2,7 @@ const AUTH_URL = "https://auth.chenkai.space/login";
 
 export function serveDashboardPage(page = "/dashboard") {
 	const currentPage = page === "/contributions" ? "/contributions" : "/dashboard";
-	const html = HTML.replace("__PAGE__", JSON.stringify(currentPage));
+	const html = HTML.replace("__PAGE__", JSON.stringify(currentPage)).replace("</head>", "<style>.form-grid .field{margin-top:0}</style></head>");
 	return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 }
 
