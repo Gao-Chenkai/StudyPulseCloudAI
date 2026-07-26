@@ -29,6 +29,7 @@ import migration15Sql from "../migrations/0015_create_bans_and_appeals.sql?raw";
 import migration16Sql from "../migrations/0016_create_feedback_tickets.sql?raw";
 import migration17Sql from "../migrations/0017_unified_identity.sql?raw";
 import migration18Sql from "../migrations/0018_auth_challenges.sql?raw";
+import migration19Sql from "../migrations/0019_create_contribution_tickets.sql?raw";
 
 const allMigrations = [
 	migration1Sql,  // 0001: api_keys
@@ -49,6 +50,7 @@ const allMigrations = [
 	migration16Sql, // 0016: support feedback tickets
 	migration17Sql, // 0017: unified identity and refresh sessions
 	migration18Sql, // 0018: short-lived auth challenges
+	migration19Sql, // 0019: code contribution review tickets
 ];
 
 // 与 v0.2 内存 Set 时期一致的 Beta Key，保证旧测试不破

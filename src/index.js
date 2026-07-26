@@ -115,7 +115,7 @@ export default {
 				hostname.endsWith(".workers.dev")
 			) {
 				if ((pathname === "/dashboard" || pathname === "/dashboard/") && method === "GET") return serveDashboardPage();
-				if (pathname === "/api/user/dashboard") return withCors(await handleUserDashboardApi(request, env, pathname), request);
+				if (pathname === "/api/user/dashboard" || pathname === "/api/user/contributions") return withCors(await handleUserDashboardApi(request, env, pathname), request);
 				if (
 					pathname.startsWith("/api/admin/") ||
 					pathname.startsWith("/admin") ||
@@ -156,7 +156,7 @@ function corsHeaders(request) {
 
 function handleDashboard(request, env, pathname, method) {
 	if ((pathname === "/" || pathname === "/dashboard" || pathname === "/dashboard/") && method === "GET") return serveDashboardPage();
-	if (pathname === "/api/user/dashboard") return handleUserDashboardApi(request, env, pathname);
+	if (pathname === "/api/user/dashboard" || pathname === "/api/user/contributions") return handleUserDashboardApi(request, env, pathname);
 	if (pathname === "/api/v1/auth/logout" && method === "POST") return destroySession(request, env).then(() => Response.json({ success: true }));
 	return Response.json({ error: "Not Found" }, { status: 404 });
 }

@@ -1,6 +1,7 @@
 import { requireSessionAuth } from "../auth/middleware.js";
 import { getMembershipPlan } from "../membership/membership.js";
 import { getUserById } from "../users/users.js";
+import { createContribution } from "../contributions/service.js";
 
 const TIME_ZONE = "Asia/Shanghai";
 
@@ -22,12 +23,21 @@ function effectivePlan(user) {
 }
 
 export async function handleUserDashboardApi(request, env, pathname) {
-  if (pathname !== "/api/user/dashboard" || request.method.toUpperCase() !== "GET") return json({ error: "Not Found" }, 404);
-  const auth = await requireSessionAuth(request, env);
-  if (!auth.ok) return auth.response;
-  const user = await getUserById(auth.userId, env);
-  if (!user) return json({ error: "User not found" }, 404);
-  if (user.status === "banned") return json({ error: "Account banned" }, 403);
+	const auth = await requireSessionAuth(request, env);
+	if (!auth.ok) return auth.response;
+	const user = await getUserById(auth.userId, env);
+	if (!user) return json({ error: "User not found" }, 404);
+	if (user.status === "banned") return json({ error: "Account banned" }, 403);
+	if (pathname === "/api/user/contributions" && request.method.toUpperCase() === "GET") {
+		const result = await env.StudyPulseDB.prepare("SELECT id,contribution_url,contribution_type,description,status,awarded_membership,membership_expires_at,admin_reply,created_at,reviewed_at FROM contribution_tickets WHERE user_id = ? ORDER BY created_at DESC LIMIT 30").bind(auth.userId).all();
+		return json({ success: true, data: result.results || [] });
+	}
+	if (pathname === "/api/user/contributions" && request.method.toUpperCase() === "POST") {
+		let body; try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+		const result = await createContribution(auth.userId, body, env);
+		return json(result.success ? { success: true, data: { id: result.id } } : { error: result.error }, result.success ? 201 : result.status || 400);
+	}
+	if (pathname !== "/api/user/dashboard" || request.method.toUpperCase() !== "GET") return json({ error: "Not Found" }, 404);
 
   const starts = periodStarts();
   const planId = effectivePlan(user);

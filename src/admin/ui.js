@@ -70,6 +70,7 @@ function getAdminHtml(csrfToken, hasCfAccess) {
       <button class="tab" data-tab="appeals"><span class="nav-icon">✉</span><span>申诉管理</span></button>
       <button class="tab" data-tab="tickets"><span class="nav-icon">⚑</span><span>反馈工单</span></button>
       <button class="tab" data-tab="ticket-archive"><span class="nav-icon">↳</span><span>└ 已处理归档</span></button>
+      <button class="tab" data-tab="contributions"><span class="nav-icon">✦</span><span>代码贡献</span></button>
       <button class="tab" data-tab="logs"><span class="nav-icon">≡</span><span>请求日志</span></button>
     </nav>
     <div class="sidebar-footer">
@@ -193,6 +194,12 @@ function getAdminHtml(csrfToken, hasCfAccess) {
     <div class="page-heading"><div><h2>已处理归档</h2><p>保留最近 200 条已处理反馈，支持按邮箱、主题和内容搜索。</p></div></div>
     <div class="toolbar"><input id="ticketArchiveSearch" class="input-sm" placeholder="搜索邮箱、主题或内容..." style="width:280px"><button class="btn btn-outline" onclick="loadTicketArchive()">搜索</button></div>
     <div id="ticketArchiveContainer" class="table-container"><p class="empty-state">点击搜索加载归档</p></div>
+  </section>
+
+  <section id="tab-contributions" class="tab-content">
+    <div class="page-heading"><div><h2>代码贡献审核</h2><p>审核用户提交的 Fork、Issue 或 Pull Request，并发放免费会员权益。</p></div></div>
+    <div class="toolbar"><button class="btn btn-outline" onclick="loadContributions()">刷新贡献</button><select id="contributionStatusFilter" class="input-sm" onchange="loadContributions()"><option value="pending">待审核</option><option value="approved">已通过</option><option value="rejected">已打回</option></select></div>
+    <div id="contributionsTableContainer" class="table-container"><p class="empty-state">加载中...</p></div>
   </section>
 
   <section id="tab-logs" class="tab-content">
@@ -531,7 +538,7 @@ async function apiJson(method, path, body) {
 function switchTab(name) {
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
   document.querySelectorAll(".tab-content").forEach(c => c.classList.toggle("active", c.id === "tab-" + name));
-  const titles = { dashboard: "仪表盘", keys: "Key 管理", users: "用户管理", blacklist: "封禁用户", appeals: "申诉管理", tickets: "反馈工单", "ticket-archive": "已处理归档", logs: "请求日志" };
+  const titles = { dashboard: "仪表盘", keys: "Key 管理", users: "用户管理", blacklist: "封禁用户", appeals: "申诉管理", tickets: "反馈工单", "ticket-archive": "已处理归档", contributions: "代码贡献审核", logs: "请求日志" };
   const title = document.getElementById("pageTitle");
   if (title) title.textContent = titles[name] || "管理后台";
   const sidebar = document.getElementById("sidebar");
@@ -543,6 +550,7 @@ function switchTab(name) {
   else if (name === "appeals") loadAppeals();
   else if (name === "tickets") loadTickets();
   else if (name === "ticket-archive") loadTicketArchive();
+  else if (name === "contributions") loadContributions();
 }
 
 function toggleSidebar() {
@@ -1211,6 +1219,31 @@ async function loadTicketArchive() {
     if (!data.length) { container.innerHTML = '<p class="empty-state">没有匹配的归档工单</p>'; return; }
     container.innerHTML = '<table><thead><tr><th>优先级</th><th>用户</th><th>主题</th><th>处理内容</th><th>处理时间</th></tr></thead><tbody>' + data.map(t => '<tr><td>' + ({normal:"普通",urgent:"紧急",top:"顶级"}[t.priority]) + '</td><td>' + escapeHtml(t.email) + '</td><td style="white-space:normal">' + escapeHtml(t.subject) + '<br><small>' + escapeHtml(t.content) + '</small></td><td style="white-space:normal;min-width:260px">' + escapeHtml(t.admin_reply || "-") + '</td><td>' + formatDate(t.processed_at) + '</td></tr>').join("") + '</tbody></table>';
   } catch (e) { container.innerHTML = '<p class="empty-state error-text">加载失败: ' + escapeHtml(e.message) + '</p>'; }
+}
+
+async function loadContributions() {
+  const container = document.getElementById("contributionsTableContainer"); if (!container) return;
+  const status = document.getElementById("contributionStatusFilter").value;
+  container.innerHTML = '<p class="empty-state">加载中...</p>';
+  try {
+    const { data } = await apiJson("GET", "/api/admin/contributions?status=" + encodeURIComponent(status));
+    if (!data.length) { container.innerHTML = '<p class="empty-state">暂无贡献记录</p>'; return; }
+    const typeName = { fork: "Fork", issue: "Issue", pull_request: "Pull Request", other: "其他" };
+    container.innerHTML = '<table><thead><tr><th>用户</th><th>贡献</th><th>说明</th><th>提交时间</th><th>状态</th><th>操作</th></tr></thead><tbody>' + data.map(c => '<tr><td>' + escapeHtml(c.email) + '</td><td><strong>' + escapeHtml(typeName[c.contribution_type] || "其他") + '</strong><br><a href="' + escapeHtml(c.contribution_url) + '" target="_blank" rel="noopener">查看链接</a></td><td style="white-space:normal;min-width:220px">' + escapeHtml(c.description || "-") + '</td><td>' + formatDate(c.created_at) + '</td><td>' + escapeHtml(c.status === "pending" ? "待审核" : c.status === "approved" ? "已通过" : "已打回") + (c.awarded_membership ? '<br><small>' + escapeHtml(c.awarded_membership.toUpperCase()) + '</small>' : '') + '</td><td>' + (c.status === "pending" ? '<button class="btn btn-sm btn-primary" onclick="reviewContribution(\\'' + c.id + '\\',\\'approved\\')">通过</button> <button class="btn btn-sm btn-danger" onclick="reviewContribution(\\'' + c.id + '\\',\\'rejected\\')">打回</button>' : escapeHtml(c.admin_reply || "-")) + '</td></tr>').join("") + '</tbody></table>';
+  } catch (e) { container.innerHTML = '<p class="empty-state error-text">加载失败: ' + escapeHtml(e.message) + '</p>'; }
+}
+
+async function reviewContribution(id, decision) {
+  let membership = null, duration_days = null;
+  if (decision === "approved") {
+    membership = prompt("发放会员类型：输入 plus 或 pro", "plus");
+    if (!["plus", "pro"].includes(membership)) { showToast("会员类型必须是 plus 或 pro", "error"); return; }
+    duration_days = prompt("有效天数", "30");
+    if (!duration_days || Number(duration_days) < 1) return;
+  }
+  const reply = prompt("审核回复（会通过邮件反馈给用户）", decision === "approved" ? "感谢您的代码贡献，审核已通过。" : "感谢您的贡献，当前提交暂未满足审核要求，请补充有效链接后再次提交。");
+  if (reply === null) return;
+  try { const result = await apiJson("POST", "/api/admin/contributions/review", { id, decision, membership, duration_days: Number(duration_days), admin_reply: reply }); showToast(result.data?.emailSent ? "贡献已审核，结果邮件已发送" : "贡献已审核，但邮件发送失败", result.data?.emailSent ? "success" : "error"); loadContributions(); } catch (e) { showToast("审核失败: " + e.message, "error"); }
 }
 
 function renderBlacklistTable(list) {

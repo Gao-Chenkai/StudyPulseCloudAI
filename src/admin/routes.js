@@ -39,6 +39,7 @@ import {
 } from "./database.js";
 import { createBan, reviewAppeal, sendTransactionalEmail } from "../appeals/service.js";
 import { accountDeletionEmail } from "../email/templates.js";
+import { reviewContribution } from "../contributions/service.js";
 
 // ────────────────────────────────────────────────────────────────────────────
 // CSRF 保护
@@ -242,6 +243,12 @@ export async function handleAdminApi(request, env, pathname) {
 		case pathname === "/api/admin/tickets/process" && method === "POST":
 			return handleProcessTicket(request, env);
 
+		case pathname === "/api/admin/contributions" && method === "GET":
+			return handleListContributions(request, env);
+
+		case pathname === "/api/admin/contributions/review" && method === "POST":
+			return handleReviewContribution(request, env);
+
 		// GET /api/admin/blacklist
 		case pathname === "/api/admin/blacklist" && method === "GET":
 			return handleListBlacklist(env);
@@ -317,6 +324,22 @@ async function handleProcessTicket(request, env) {
 	await env.StudyPulseDB.prepare(`DELETE FROM feedback_tickets WHERE status='processed' AND id NOT IN (SELECT id FROM feedback_tickets WHERE status='processed' ORDER BY processed_at DESC LIMIT 200)`).run();
 	writeAdminLog(env, { admin_user_id: "admin_system", action: "process_feedback_ticket", details: JSON.stringify({ ticket_id: id }) }).catch(() => {});
 	return json({ success: true });
+}
+
+async function handleListContributions(request, env) {
+	const status = new URL(request.url).searchParams.get("status") || "pending";
+	const where = ["pending", "approved", "rejected"].includes(status) ? "WHERE c.status = ?" : "";
+	const result = await env.StudyPulseDB.prepare(`SELECT c.id,c.user_id,c.email,c.contribution_url,c.contribution_type,c.description,c.status,c.awarded_membership,c.membership_expires_at,c.admin_reply,c.created_at,c.reviewed_at,u.membership_type FROM contribution_tickets c JOIN users u ON u.id=c.user_id ${where} ORDER BY c.created_at DESC LIMIT 200`).bind(...(where ? [status] : [])).all();
+	return json({ success: true, data: result.results || [] });
+}
+
+async function handleReviewContribution(request, env) {
+	let body; try { body = await request.json(); } catch { return error("Invalid JSON body", 400); }
+	if (!body?.id || !["approved", "rejected"].includes(body.decision)) return error("id 和审核结果为必填", 400);
+	const result = await reviewContribution(body.id, body.decision, body.membership, body.duration_days, body.admin_reply, env);
+	if (!result.success) return error(result.error, result.status || 400);
+	writeAdminLog(env, { admin_user_id: "admin_system", action: `review_contribution_${body.decision}`, target_user_id: body.user_id || null, details: JSON.stringify({ contribution_id: body.id, membership: result.membership, expires_at: result.expiresAt }) }).catch(() => {});
+	return json({ success: true, data: result });
 }
 
 // ────────────────────────────────────────────────────────────────────────────

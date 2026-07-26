@@ -18,3 +18,8 @@ export function appealResultEmail({ approved, reply }) {
 export function accountDeletionEmail({ email }) {
 	return shell(`<tr><td style="font-size:24px;font-weight:600;padding-bottom:24px">账户删除申请已通过</td></tr><tr><td style="font-size:16px;line-height:1.6;color:#444">您好，<br><br>您的账户删除申请已经通过，账户已经删除。<br><br>账号：${escapeHtml(email)}<br><br>与该账户关联的登录会话、API Key 及账户数据已一并删除。</td></tr>`);
 }
+
+export function contributionResultEmail({ approved, membership, expiresAt, reply }) {
+	const membershipLabel = membership === "pro" ? "Pro" : "Plus";
+	return shell(`<tr><td style="font-size:24px;font-weight:600;padding-bottom:24px">代码贡献审核结果</td></tr><tr><td style="font-size:16px;line-height:1.6;color:#444">您好，<br><br>您提交的代码贡献已完成审核，结果为：<strong>${approved ? "通过" : "未通过"}</strong>。${approved ? `<br><br>感谢您的贡献，我们已为您的账号发放 <strong>${membershipLabel}</strong> 会员，当前有效期至：${escapeHtml(expiresAt ? new Date(expiresAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "-")}。` : "<br><br>本次贡献暂未满足审核要求，您可以补充更完整的贡献链接后再次提交。"}${reply ? `<br><br>审核回复：${escapeHtml(reply)}` : ""}</td></tr>`);
+}
