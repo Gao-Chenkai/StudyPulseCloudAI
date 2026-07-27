@@ -1,8 +1,8 @@
 # StudyPulse Cloud AI
 
-Cloudflare Workers 驱动的 AI 后端网关，为 StudyPulse iOS App 提供 MiniMax-M3 多模态 AI 调用服务，含完整的管理后台和 SaaS 用户体系。
+Cloudflare Workers 驱动的 AI 后端网关与统一身份中心，为 StudyPulse iOS App 和 Web 用户提供 MiniMax-M3 多模态 AI 调用、账号认证、用量管理和用户支持服务。
 
-**版本：** 0.6-beta
+**版本：** 0.7-beta
 **许可证：** Apache 2.0
 
 ---
@@ -10,6 +10,7 @@ Cloudflare Workers 驱动的 AI 后端网关，为 StudyPulse iOS App 提供 Min
 ## 目录
 
 - [功能特性](#功能特性)
+- [v0.7-beta Release Notes](#v07-beta-release-notes)
 - [架构](#架构)
 - [目录结构](#目录结构)
 - [快速开始](#快速开始)
@@ -32,6 +33,9 @@ Cloudflare Workers 驱动的 AI 后端网关，为 StudyPulse iOS App 提供 Min
 - **多模态支持** — MiniMax-M3 原生支持文本、图片（JPEG/PNG/GIF/WEBP）、视频（MP4/AVI/MOV/MKV）输入
 - **流式响应 (SSE)** — 支持 `stream: true`，透传 MiniMax 流式输出，含用量提取和客户端断连检测
 - **SaaS 用户体系** — 邮箱验证码登录（Resend），Session Token 管理（30 天有效期），用户注册/角色/会员
+- **统一身份中心** — `auth.chenkai.space` 提供邮箱密码、邮箱验证码和 GitHub OAuth 登录，统一关联同一用户身份
+- **安全会话管理** — Access Token + Refresh Token、Session 撤销、退出全部设备、设备信息记录和登录限流
+- **密码认证** — 密码注册、修改、重置，bcrypt 哈希存储，兼容历史 PBKDF2 凭据并在成功登录后升级
 - **双鉴权** — Session Token 与 API Key 共存，统一 `authenticateRequest()` 中间件，支持 `X-API-Key` header
 - **会员计划** — 三级会员（free/plus/pro），按日请求次数和月 Token 用量控制额度，运行时过期降级
 - **API Key 鉴权** — D1 数据库持久化，SHA-256 哈希存储，支持启用/禁用/过期/配额控制
@@ -40,6 +44,8 @@ Cloudflare Workers 驱动的 AI 后端网关，为 StudyPulse iOS App 提供 Min
 - **管理后台** — 内置 WebUI + RESTful API，支持 Key CRUD、用户管理、会员管理、封禁用户、管理员操作日志
 - **域名隔离** — 公开 API 与管理后台绑定不同子域名（spapi.chenkai.space / admin.chenkai.space）
 - **多层安全** — Cloudflare Access SSO、CSRF 保护、常量时间比较、参数化查询防注入
+- **账号支持流程** — 封禁、邮件通知、在线申诉、反馈工单和管理员审核
+- **代码贡献激励** — 用户提交 GitHub 贡献链接，管理员审核后发放 Plus/Pro 会员
 
 ---
 
@@ -56,11 +62,12 @@ Cloudflare Workers 驱动的 AI 后端网关，为 StudyPulse iOS App 提供 Min
 │                       Cloudflare Worker                           │
 │                                                                  │
 │  spapi.chenkai.space (公开 API)        admin.chenkai.space (管理)  │
+│  auth.chenkai.space (统一登录)          dash.studypulse.chenkai.space (用户中心) │
 │  ┌────────────────────────────────┐   ┌──────────────────────┐   │
 │  │ GET  /              健康检查    │   │ GET  /admin   WebUI   │   │
-│  │ POST /auth/email/*   邮箱登录   │   │ /api/admin/* 管理API  │   │
+│  │ POST /auth/*         统一登录   │   │ /api/admin/* 管理API  │   │
 │  │ GET  /user/profile   用户信息   │   │ /api/admin/users/*    │   │
-│  │ POST /auth/logout    退出登录   │   │ /api/admin/blacklist/*│   │
+│  │ POST /v1/auth/*      会话管理   │   │ /api/admin/appeals/* │   │
 │  │ POST /v1/chat        AI 对话    │   └──────────┬───────────┘   │
 │  └─────────┬──────────────────────┘              │               │
 │            │                                     │               │
@@ -80,6 +87,9 @@ Cloudflare Workers 驱动的 AI 后端网关，为 StudyPulse iOS App 提供 Min
 │  email_verification_codes│
 │  admin_logs             │
 │  blacklisted_emails     │
+│  bans / appeals         │
+│  feedback_tickets       │
+│  contribution_tickets   │
 └────────────────────────┘
              │
              │  Bearer ${MINIMAX_API_KEY}
@@ -185,7 +195,13 @@ studypulse-cloud-ai/
 │   ├── 0010_create_admin_logs.sql    # admin_logs 表
 │   ├── 0011_seed_membership_plans.sql # 种子会员计划数据
 │   ├── 0012_create_blacklisted_emails.sql # blacklisted_emails 表
-│   └── 0013_make_api_key_id_nullable.sql  # request_logs.api_key_id 改为可空
+│   ├── 0013_make_api_key_id_nullable.sql  # request_logs.api_key_id 改为可空
+│   ├── 0014_add_password_auth.sql         # 密码认证、邮箱规范化、登录限流
+│   ├── 0015_create_bans_and_appeals.sql   # 封禁与申诉
+│   ├── 0016_create_feedback_tickets.sql   # 用户反馈工单
+│   ├── 0017_unified_identity.sql          # OAuth 账户与 Refresh Token
+│   ├── 0018_auth_challenges.sql           # 一次性认证挑战
+│   └── 0019_create_contribution_tickets.sql # 代码贡献审核
 ├── scripts/                          # 管理脚本
 │   ├── _common.js                    # 共用工具
 │   ├── create-api-key.js             # 创建 API Key
@@ -198,7 +214,9 @@ studypulse-cloud-ai/
 │   ├── index.spec.js                 # 公开 API 测试
 │   └── admin.spec.js                 # 管理后台测试
 ├── docs/
-│   └── API.md                        # 公开 API 完整文档
+│   ├── API.md                        # 公开 API 完整文档
+│   ├── AUTHENTICATION.md             # 统一身份与登录流程
+│   └── ERROR_CODES.md                # 错误码表
 ├── wrangler.jsonc                    # Cloudflare Workers 配置
 ├── vitest.config.js                  # Vitest 测试配置
 ├── package.json
@@ -248,6 +266,9 @@ cat > .dev.vars << 'EOF'
 MINIMAX_API_KEY=sk-your-minimax-api-key
 ADMIN_API_TOKEN=your-admin-token
 RESEND_API_KEY=re_your_resend_api_key
+# GitHub OAuth（统一身份中心必需）
+GITHUB_CLIENT_ID=your-github-oauth-client-id
+GITHUB_CLIENT_SECRET=your-github-oauth-client-secret
 EOF
 
 # 4. 种子测试 API Key（本地）
@@ -262,6 +283,9 @@ npx wrangler d1 execute studypulse-cloud-ai-db --local --command \
 # 5. 启动开发服务器
 npm run dev
 # → http://localhost:8787
+
+# 统一身份中心（本地路径路由）
+open http://localhost:8787/login
 ```
 
 ### 验证本地服务
@@ -315,6 +339,10 @@ npx wrangler secret put ADMIN_API_TOKEN
 
 # Resend 邮件发送 Key（邮箱登录必需）
 npx wrangler secret put RESEND_API_KEY
+
+# GitHub OAuth（统一身份中心必需）
+npx wrangler secret put GITHUB_CLIENT_ID
+npx wrangler secret put GITHUB_CLIENT_SECRET
 ```
 
 > Secrets 由 Cloudflare 加密存储，仅运行时通过 `env` 注入，绝不写入代码或配置文件。
@@ -344,7 +372,9 @@ node scripts/create-api-key.js "iOS Beta 001" --remote
 |------|------|-------------|
 | `spapi.chenkai.space` | 公开 AI API | CNAME → Worker `*.workers.dev` |
 | `admin.chenkai.space` | 管理后台 | CNAME → Worker `*.workers.dev` |
-| `support.chenkai.space` | 封禁账号申诉页面与 API | CNAME → Worker `*.workers.dev` |
+| `support.chenkai.space` | 封禁账号申诉与反馈工单 | CNAME → Worker `*.workers.dev` |
+| `auth.chenkai.space` | 统一登录与 GitHub OAuth | CNAME → Worker `*.workers.dev` |
+| `dash.studypulse.chenkai.space` | 用户仪表盘、反馈与代码贡献 | CNAME → Worker `*.workers.dev` |
 
 ### 5. （可选）配置 Cloudflare Access
 
@@ -363,8 +393,10 @@ node scripts/create-api-key.js "iOS Beta 001" --remote
 ### 7. 部署 Worker
 
 ```bash
-# 注意：根据项目规则，部署应由 CI/CD 或手动在远程执行
-npm run deploy
+# Worker 已与 GitHub 集成，提交并推送后由 GitHub 自动触发部署
+git add README.md
+git commit -m "docs: update v0.7-beta release notes"
+git push origin main
 ```
 
 ---
@@ -383,6 +415,34 @@ npm run deploy
 | `POST` | `/auth/logout` | Bearer Session | 退出登录（销毁 Session） |
 | `GET` | `/user/profile` | Bearer Session / API Key | 获取当前用户信息和会员状态 |
 | `POST` | `/v1/chat` | Bearer Session / X-API-Key / Bearer API Key | AI 对话（文本/多模态/流式） |
+
+### 统一身份中心
+
+统一登录入口：`https://auth.chenkai.space/login`。认证接口最终共享同一个 `users.id`、会员计划和用量记录：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `POST` | `/auth/login/password` | 邮箱 + 密码登录 |
+| `POST` | `/auth/send-code` | 发送登录/重置密码验证码 |
+| `POST` | `/auth/login/code` | 邮箱验证码登录，首次登录可设置密码 |
+| `POST` | `/auth/password/set-after-code` | 验证码登录后的首次密码设置 |
+| `POST` | `/v1/auth/register/verify` | 邮箱验证码注册并设置密码 |
+| `POST` | `/v1/auth/password/change` | 修改密码并撤销旧 Session |
+| `POST` | `/v1/auth/password/reset` | 验证码重置密码 |
+| `POST` | `/auth/refresh` | Refresh Token 单次轮换 |
+| `POST` | `/v1/auth/logout` / `/v1/auth/logout-all` | 退出当前设备/全部设备 |
+| `GET` | `/v1/auth/me` | 获取当前用户和登录方式 |
+| `GET` | `/oauth/github/start` | 启动 GitHub OAuth |
+| `GET` | `/oauth/github/callback` | GitHub OAuth 回调与身份绑定 |
+
+密码长度要求为 10–128 个 Unicode 字符。密码只保存哈希；历史 PBKDF2 凭据会在成功登录后升级为 bcrypt。完整流程见 [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md)。
+
+### 用户支持与贡献
+
+- `support.chenkai.space`：封禁账号申诉和反馈工单
+- `dash.studypulse.chenkai.space/dashboard`：用户用量和会员状态
+- `dash.studypulse.chenkai.space/contributions`：提交 GitHub Issue、Fork 或 Pull Request 参与会员激励
+- `dash.studypulse.chenkai.space/feedback`：提交反馈并查看处理结果
 
 ### AI 对话请求格式
 
@@ -807,6 +867,9 @@ npx vitest run test/index.spec.js
 |---------|---------|
 | `test/index.spec.js` | 健康检查、无 Key/错误 Key/禁用 Key（403）、过期 Key（403）、配额超限（429）、正常对话、流式对话、无效 JSON（400）、未配置 Key（500）、上游失败（502）、request_count 自增、request_logs 写入 |
 | `test/admin.spec.js` | 管理员鉴权（Access JWT / Token）、未授权（401）、Key 列表、创建 Key、更新 Key、删除 Key、重置配额、日志查询、CSRF 校验（403）|
+| `test/auth-password.spec.js` | 密码注册/登录、修改/重置、Session 撤销、登录锁定、历史用户兼容和 API Key 身份统一 |
+| `test/auth-unified.spec.js` | 验证码登录、首次密码设置、Refresh Token 轮换和统一身份中心路由 |
+| `test/support.spec.js` | 用户反馈工单和支持中心认证 |
 
 ### 测试环境
 
@@ -826,13 +889,59 @@ npx vitest run test/index.spec.js
 | **AI Provider** | MiniMax-M3 | OpenAI 兼容协议，原生多模态，1M 上下文 |
 | **Email** | Resend | 邮件 API，用于发送验证码 |
 | **Admin UI** | 原生 HTML/CSS/JS | 零框架，零构建步骤 |
-| **Auth** | Web Crypto API (SHA-256) | 无外部依赖的哈希计算 |
+| **Auth** | bcrypt + Web Crypto API | 密码凭据、Session/API Key 哈希与统一身份认证 |
 | **CLI** | wrangler | Cloudflare 官方 CLI |
 | **Test** | Vitest + cloudflare/vitest-pool-workers | Workers 本地模拟测试 |
 
 ---
 
 ## 版本历史
+
+### v0.7-beta Release Notes
+
+发布日期：2026-07-26
+
+#### 重大更新：统一身份中心
+
+v0.7 将邮箱验证码、邮箱密码、GitHub OAuth、Session 和 API Key 统一到同一套用户身份模型。用户不再因为更换登录方式而产生重复账号，会员、额度、API Key 和请求记录继续绑定到同一个 `users.id`。
+
+#### 登录与账号安全
+
+- 新增 `auth.chenkai.space` 统一登录页，支持邮箱密码、邮箱验证码和 GitHub OAuth。
+- 新增密码注册、修改、重置和首次验证码登录后的密码设置流程。
+- 新增 Access Token / Refresh Token，会话支持设备信息、单设备退出、全部设备退出和 Refresh Token 单次轮换。
+- 密码采用 bcrypt 哈希存储；历史 PBKDF2 凭据在成功登录后自动升级。
+- 增加邮箱规范化、验证码用途区分、登录失败限流、账号锁定和一次性认证挑战，避免凭据枚举和重放。
+
+#### 用户服务与运营流程
+
+- 新增用户仪表盘，展示会员状态、AI 用量趋势和账号认证状态。
+- 新增封禁账号邮件通知、在线申诉页面和管理员审核流程。
+- 新增反馈工单，用户可提交普通/紧急反馈并查看处理结果。
+- 新增 GitHub 代码贡献审核，管理员可审核 Issue、Fork、Pull Request 等贡献并发放 Plus/Pro 会员。
+- 管理后台新增申诉、反馈工单和代码贡献审核页面，并保留用户、Key、会员和请求日志管理。
+
+#### 数据库与兼容性
+
+- 新增 D1 migrations `0014`–`0019`：密码认证、封禁申诉、反馈工单、OAuth 账户、认证挑战和代码贡献工单。
+- 保留旧版 `/auth/email/*` 邮箱验证码接口和 API Key 鉴权方式，已存在的用户与 API Key 不会被重新创建或解绑。
+- `docs/AUTHENTICATION.md`、`docs/API.md` 和 `docs/ERROR_CODES.md` 补充统一身份、接口和错误码说明。
+
+#### 升级指南
+
+从 v0.6-beta 升级到 v0.7-beta：
+
+1. 应用 D1 migrations `0014`–`0019`：
+
+   ```bash
+   npx wrangler d1 migrations apply studypulse-cloud-ai-db --remote
+   ```
+
+2. 配置 `RESEND_API_KEY`、`GITHUB_CLIENT_ID` 和 `GITHUB_CLIENT_SECRET` Secrets。
+3. 在 GitHub OAuth App 中将回调地址设置为 `https://auth.chenkai.space/oauth/github/callback`。
+4. 提交并推送代码，由 GitHub 集成触发 Worker 部署。
+
+---
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
@@ -842,6 +951,7 @@ npx vitest run test/index.spec.js
 | `0.4-beta` | 2026-07 | 请求额度控制（request_limit/429），Key 启用/禁用，管理脚本 |
 | `0.5-beta` | 2026-07 | 管理后台 WebUI + API，域名隔离路由，CSRF 保护，Cloudflare Access |
 | `0.6-beta` | 2026-07 | SaaS 用户体系（邮箱验证码登录 + Session Token + 双鉴权中间件）、三级会员计划（日请求/月 Token 额度）、流式 SSE 响应（含 tee 分叉用量提取）、usage_records 用量追踪、用户管理（角色/会员 CRUD）、封禁用户、管理员操作日志、limit_type 按次数/Token 限额切换、X-API-Key header 鉴权 |
+| `0.7-beta` | 2026-07 | 统一身份中心（邮箱密码/验证码/GitHub OAuth）、Access/Refresh Token 会话、密码安全与登录限流、用户仪表盘、封禁申诉、反馈工单、代码贡献会员激励、0014–0019 数据库迁移 |
 
 ---
 
@@ -849,6 +959,5 @@ npx vitest run test/index.spec.js
 
 - [ ] **多 Provider 路由** — `providers/` 新增 openai/kimi/glm，body 增加 `provider` 字段
 - [ ] **时间窗口限流** — 基于 D1 的每分钟/每小时速率限制
-- [ ] **GitHub OAuth 登录** — users 表已预留 github_id，增加 OAuth 流程
 - [ ] **用量仪表盘图表** — 管理后台增加用量趋势可视化
-- [ ] **CI/CD** — GitHub Actions 自动化测试 + 部署
+- [ ] **更细粒度的速率限制** — 按用户、IP、接口和设备组合限流

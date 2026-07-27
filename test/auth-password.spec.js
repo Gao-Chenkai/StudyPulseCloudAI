@@ -146,6 +146,61 @@ describe("password authentication", () => {
 		expect(resetPassword.status).toBe(200);
 	});
 
+	it("lets legacy users set a password without changing identity or API keys", async () => {
+		const address = email();
+		const userId = crypto.randomUUID();
+		await env.StudyPulseDB.prepare(
+			`INSERT INTO users (id, email, email_normalized, email_verified, role, membership_type)
+			 VALUES (?, ?, ?, 1, 'user', 'free')`,
+		).bind(userId, address, address).run();
+
+		const apiKey = `sp_beta_${crypto.randomUUID().replaceAll("-", "")}`;
+		const apiKeyHash = await sha256Hex(apiKey);
+		await env.StudyPulseDB.prepare(
+			`INSERT INTO api_keys (key_hash, name, user_id, enabled)
+			 VALUES (?, 'Legacy user API key', ?, 1)`,
+		).bind(apiKeyHash, userId).run();
+
+		// The old email-code flow must continue to authenticate the same account.
+		await insertCode(address, "111111", "login");
+		const codeLogin = await request("/auth/email/verify", {
+			body: { email: address, code: "111111" },
+		});
+		expect(codeLogin.status).toBe(200);
+		const legacyToken = (await codeLogin.json()).data.token;
+
+		await insertCode(address, "222222", "reset_password");
+		const reset = await request("/v1/auth/password/reset", {
+			body: { email: address, code: "222222", new_password: "新的安全密码 123" },
+		});
+		expect(reset.status).toBe(200);
+		expect((await reset.json()).data.user.id).toBe(userId);
+
+		const users = await env.StudyPulseDB.prepare(
+			"SELECT id FROM users WHERE email_normalized = ?",
+		).bind(address).all();
+		expect(users.results).toHaveLength(1);
+		expect(users.results[0].id).toBe(userId);
+
+		const oldCodeSession = await request("/v1/auth/me", {
+			method: "GET",
+			headers: { Authorization: `Bearer ${legacyToken}` },
+		});
+		expect(oldCodeSession.status).toBe(401);
+
+		const passwordLogin = await request("/v1/auth/login", {
+			body: { email: address, password: "新的安全密码 123" },
+		});
+		expect(passwordLogin.status).toBe(200);
+		expect((await passwordLogin.json()).data.user.id).toBe(userId);
+
+		const apiKeyAuth = await authenticateRequest(
+			new Request("http://localhost/v1/chat", { headers: { "X-API-Key": apiKey } }),
+			env,
+		);
+		expect(apiKeyAuth).toMatchObject({ ok: true, userId, authType: "api_key" });
+	});
+
 	it("supports logout, logout-all, account locking, and lock expiry", async () => {
 		const address = email();
 		await register(address);
