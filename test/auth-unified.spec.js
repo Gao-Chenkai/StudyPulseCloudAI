@@ -37,8 +37,8 @@ describe("unified identity endpoints", () => {
 		expect(response.headers.get("content-type")).toContain("text/html");
 		const html = await response.text();
 		expect(html).toContain("GitHub");
-		// Password setup/reset forms use the aux class and must receive the same
-		// submit handler as the regular login forms.
-		expect(html).toContain("document.querySelectorAll('.form,.aux').forEach(form=>form.onsubmit");
+		// The page shell and executable behavior are now separate static assets.
+		expect(html).toContain('<script src="/pages/auth/app.js" defer></script>');
+		expect(html).not.toContain("<style>");
 	});
 });
