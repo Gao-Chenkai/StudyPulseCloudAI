@@ -546,20 +546,7 @@ async function handleChat(request, env, ctx) {
 
 	const messages = [{ role: "user", content: userContent }];
 
-	// 5. 流式分支
-	if (body?.stream === true) {
-		try {
-			return await handleChatStream(request, env, ctx, { userId, apiKeyId }, messages, body.model);
-		} catch (err) {
-			console.error("AI stream setup error:", err?.stack || err?.message || err);
-			return Response.json(
-				{ error: "AI request failed" },
-				{ status: 502 },
-			);
-		}
-	}
-
-	// 6. 额度检查（统一按 user_id）
+	// 5. 额度检查（统一按 user_id）
 	let model = body.model || "MiniMax-M3";
 	const provider = "minimax";
 
@@ -591,6 +578,19 @@ async function handleChat(request, env, ctx) {
 					{ status: 403 },
 				);
 			}
+		}
+	}
+
+	// 6. 流式分支（必须在额度和模型白名单检查之后）
+	if (body?.stream === true) {
+		try {
+			return await handleChatStream(request, env, ctx, { userId, apiKeyId }, messages, model);
+		} catch (err) {
+			console.error("AI stream setup error:", err?.stack || err?.message || err);
+			return Response.json(
+				{ error: "AI request failed" },
+				{ status: 502 },
+			);
 		}
 	}
 
