@@ -105,6 +105,12 @@ export default {
 				return withCors(await handlePublicApi(request, env, ctx, pathname, method), request);
 			}
 
+			// workers.dev 是公开的调试/预览入口，不作为生产管理后台入口。
+			// 即使请求携带 Authorization，也不能通过该域名访问管理页面或 API。
+			if (hostname.endsWith(".workers.dev") && isAdminPath(pathname)) {
+				return withCors(Response.json({ error: "Not Found" }, { status: 404 }), request);
+			}
+
 			// ── 本地开发 & Workers.dev 调试：路径路由（兼容全部功能）──
 			if (
 				hostname === "localhost" ||
@@ -170,6 +176,15 @@ function withCors(response, request) {
 	const headers = new Headers(response.headers);
 	for (const [name, value] of Object.entries(corsHeaders(request))) headers.set(name, value);
 	return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+function isAdminPath(pathname) {
+	return (
+		pathname === "/admin" ||
+		pathname === "/admin/" ||
+		pathname.startsWith("/admin/") ||
+		pathname.startsWith("/api/admin/")
+	);
 }
 
 // ────────────────────────────────────────────────────────────────────────────

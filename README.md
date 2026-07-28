@@ -382,7 +382,11 @@ node scripts/create-api-key.js "iOS Beta 001" --remote
 2. 创建 Self-hosted Application，Domain 设为 `admin.chenkai.space`
 3. 添加 Identity Provider（GitHub / Google / 邮箱 OTP）
 4. 配置 Access Policy，限定管理员访问
-5. Workers 端无需额外配置 — 自动读取 `Cf-Access-Jwt-Assertion` header
+5. 在 Worker 环境变量中配置 `CF_ACCESS_TEAM_DOMAIN=https://<team-name>.cloudflareaccess.com`
+6. 在 Worker 环境变量中配置 `CF_ACCESS_AUDIENCE=<Application AUD tag>`
+7. Worker 会从 `<team-domain>/cdn-cgi/access/certs` 获取公钥，校验 Access JWT 的签名、issuer 和 audience
+
+生产管理后台只通过 `admin.chenkai.space` 提供；`*.workers.dev` 上的 `/admin` 和 `/api/admin/*` 路由会直接返回 404。
 
 ### 6. 配置 Resend
 
@@ -564,7 +568,7 @@ data: [DONE]
 
 管理后台支持两种认证方式，短路求值，任一通过即可：
 
-1. **Cloudflare Access（推荐）** — 到达 Worker 时 `Cf-Access-Jwt-Assertion` header 存在即通过，无需额外配置
+1. **Cloudflare Access（推荐）** — Worker 使用 Access JWKS 校验 `Cf-Access-Jwt-Assertion` 的 RS256 签名、issuer 和 audience
 2. **ADMIN_API_TOKEN（降级）** — 本地开发或未配置 Access 时使用 Bearer Token
 
 ### 管理 API
