@@ -1,6 +1,10 @@
 import { env, createExecutionContext, waitOnExecutionContext, SELF } from "cloudflare:test";
 import { describe, it, expect } from "vitest";
-import worker from "../src";
+import worker, {
+	CHAT_MAX_BODY_BYTES,
+	CHAT_MAX_CONTENT_ITEMS,
+	CHAT_MAX_MESSAGE_CHARS,
+} from "../src";
 import { sha256Hex } from "../src/auth.js";
 
 async function createUserApiKey({ membershipType = "free", requestKey = `sp_stream_${crypto.randomUUID()}` } = {}) {
@@ -58,6 +62,58 @@ describe("StudyPulse Cloud AI v0.2-beta", () => {
 			});
 			expect(response.status).toBe(403);
 			expect(await response.json()).toEqual({ error: "Invalid API Key" });
+		});
+	});
+
+	describe("POST /v1/chat application limits", () => {
+		it("rejects a declared request body above the application limit before JSON parsing", async () => {
+			const requestBody = JSON.stringify({ message: "small" });
+			const request = new Request("http://localhost/v1/chat", {
+				method: "POST",
+				headers: {
+					"X-API-Key": "sp_beta_test001",
+					"Content-Type": "application/json",
+					"Content-Length": String(CHAT_MAX_BODY_BYTES + 1),
+				},
+				body: requestBody,
+			});
+			const response = await worker.fetch(request, env, createExecutionContext());
+
+			expect(response.status).toBe(413);
+			expect(await response.json()).toEqual({ error: "Request body too large" });
+		});
+
+		it("rejects an oversized text message", async () => {
+			const response = await SELF.fetch("http://localhost/v1/chat", {
+				method: "POST",
+				headers: {
+					"X-API-Key": "sp_beta_test001",
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ message: "x".repeat(CHAT_MAX_MESSAGE_CHARS + 1) }),
+			});
+
+			expect(response.status).toBe(400);
+			expect(await response.json()).toEqual({ error: "Message too long" });
+		});
+
+		it("rejects an oversized multimodal content array", async () => {
+			const response = await SELF.fetch("http://localhost/v1/chat", {
+				method: "POST",
+				headers: {
+					"X-API-Key": "sp_beta_test001",
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					content: Array.from({ length: CHAT_MAX_CONTENT_ITEMS + 1 }, () => ({
+						type: "text",
+						text: "x",
+					})),
+				}),
+			});
+
+			expect(response.status).toBe(400);
+			expect(await response.json()).toEqual({ error: "Too many content items" });
 		});
 	});
 

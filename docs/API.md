@@ -320,6 +320,10 @@ Authorization: Bearer sp_sess_xxx
 | `content` | array | 否 | OpenAI 风格 content 数组（优先级高于 message） |
 | `stream` | boolean | 否 | 是否启用 SSE 流式传输，默认 false |
 
+**应用层限制：**整个请求体最多 256 KiB；`message` 和多模态项中的 `text` 最多
+32,768 个字符；`content` 数组最多 16 项。超出请求体限制返回 `413 Request body too large`，
+超出字段限制返回 `400`。
+
 **成功响应 `200 OK`:**
 
 ```json
