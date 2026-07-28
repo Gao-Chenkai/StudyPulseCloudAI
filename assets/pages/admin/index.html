@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StudyPulse Cloud AI - 管理后台</title>
+<meta name="csrf-token" content="__CSRF_TOKEN__">
+<meta name="has-cf-access" content="__HAS_CF_ACCESS__">
+<link rel="stylesheet" href="/pages/admin/styles.css">
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand-lockup">
+      <img class="brand-mark" src="/StudyPulseLogo.png" alt="StudyPulse Logo" style="object-fit:cover">
+      <div>
+        <strong>StudyPulse</strong>
+        <span>Cloud AI</span>
+      </div>
+    </div>
+    <div class="sidebar-label">管理中心</div>
+    <nav class="tabs" style="display:none" id="mainNav" aria-label="主导航">
+      <button class="tab active" data-tab="dashboard"><span class="nav-icon">⌂</span><span>仪表盘</span></button>
+      <button class="tab" data-tab="keys"><span class="nav-icon">⌁</span><span>Key 管理</span></button>
+      <button class="tab" data-tab="users"><span class="nav-icon">◎</span><span>用户管理</span></button>
+      <button class="tab" data-tab="blacklist"><span class="nav-icon">⊘</span><span>封禁用户</span></button>
+      <button class="tab" data-tab="appeals"><span class="nav-icon">✉</span><span>申诉管理</span></button>
+      <button class="tab" data-tab="tickets"><span class="nav-icon">⚑</span><span>反馈工单</span></button>
+      <button class="tab" data-tab="ticket-archive"><span class="nav-icon">↳</span><span>└ 已处理归档</span></button>
+      <button class="tab" data-tab="contributions"><span class="nav-icon">✦</span><span>代码贡献</span></button>
+      <button class="tab" data-tab="logs"><span class="nav-icon">≡</span><span>请求日志</span></button>
+    </nav>
+    <div class="sidebar-footer">
+      <span class="status-dot"></span>
+      <span id="loginStatus">未连接</span>
+      <button id="btnLogout" class="btn btn-sm btn-ghost" style="display:none" onclick="doLogout()">退出</button>
+    </div>
+  </aside>
+
+  <main id="app" class="main-content">
+    <header class="topbar">
+      <button class="mobile-menu" type="button" onclick="toggleSidebar()" aria-label="打开导航">☰</button>
+      <div>
+        <div class="eyebrow">StudyPulse Cloud AI <span class="badge">管理后台</span></div>
+        <h1 id="pageTitle">仪表盘</h1>
+      </div>
+      <div class="topbar-actions">
+        <span class="topbar-status"><span class="status-dot"></span><span id="topbarStatus">安全连接</span></span>
+      </div>
+    </header>
+  <!-- 登录遮罩 -->
+  <div id="loginOverlay" class="login-overlay" style="display:none">
+    <div class="login-container">
+      <div class="login-brand"><div class="brand-mark">S</div><span>StudyPulse Admin</span></div>
+      <h2>欢迎回来</h2>
+      <p class="text-muted">请输入管理员凭证以访问控制台</p>
+      <input type="password" id="loginToken" class="input" placeholder="ADMIN_API_TOKEN">
+      <button class="btn btn-primary btn-block" onclick="doLogin()">登录控制台</button>
+      <p id="loginError" class="error-text" style="display:none"></p>
+    </div>
+  </div>
+
+  <!-- 加载中 -->
+  <div id="loadingOverlay" class="login-overlay">
+    <div class="login-container">
+      <p class="text-muted">连接中...</p>
+    </div>
+  </div>
+
+  <section id="tab-dashboard" class="tab-content active">
+    <div class="page-heading">
+      <div><h2>概览</h2><p>查看当前 API 资源和用户运行状态。</p></div>
+      <button class="btn btn-outline" onclick="loadDashboard()">↻ 刷新数据</button>
+    </div>
+    <div class="stats-grid" id="statsGrid">
+      <div class="stat-card"><div class="stat-card-top"><span class="stat-icon blue">⌁</span><span class="stat-trend">资源</span></div><div class="stat-label">总 Key 数</div><div class="stat-value skeleton">-</div><div class="stat-foot">全部 API 访问凭证</div></div>
+      <div class="stat-card"><div class="stat-card-top"><span class="stat-icon green">✓</span><span class="stat-trend positive" id="enabledRate">--</span></div><div class="stat-label">启用 Key 数</div><div class="stat-value skeleton">-</div><div class="stat-foot">当前可用的访问凭证</div></div>
+      <div class="stat-card"><div class="stat-card-top"><span class="stat-icon violet">↗</span><span class="stat-trend">累计</span></div><div class="stat-label">总请求数</div><div class="stat-value skeleton">-</div><div class="stat-foot">所有 API 请求总量</div></div>
+      <div class="stat-card"><div class="stat-card-top"><span class="stat-icon orange">◎</span><span class="stat-trend">成员</span></div><div class="stat-label">用户数</div><div class="stat-value skeleton">-</div><div class="stat-foot">已注册的用户账户</div></div>
+    </div>
+    <div class="dashboard-grid">
+      <div class="panel health-panel"><div class="panel-heading"><div><h3>系统健康</h3><p>根据当前 Key 状态计算</p></div><span class="health-pill" id="healthPill">检查中</span></div><div class="health-meter"><span id="healthMeterFill"></span></div><div class="health-copy"><strong id="healthHeadline">正在读取状态</strong><span id="healthDetail">请稍候...</span></div></div>
+      <div class="panel quick-panel"><div class="panel-heading"><div><h3>快速操作</h3><p>常用管理动作</p></div></div><div class="quick-actions"><button class="quick-action" onclick="showCreateModal()"><span>＋</span><div><strong>创建 API Key</strong><small>为用户发放新凭证</small></div></button><button class="quick-action" onclick="showCreateUserModal()"><span>◎</span><div><strong>新建用户</strong><small>创建已认证账户</small></div></button><button class="quick-action" onclick="switchTab('logs')"><span>≡</span><div><strong>查看请求日志</strong><small>排查调用与错误</small></div></button></div></div>
+    </div>
+    <div class="trend-grid">
+      <div class="panel trend-panel"><div class="panel-heading"><div><h3>调用次数</h3><p>按时间统计 API 调用量</p></div><div class="range-switch" data-trend="calls"></div></div><div id="callsTrend" class="trend-chart" aria-label="调用次数折线图"></div></div>
+      <div class="panel trend-panel"><div class="panel-heading"><div><h3>Token 用量</h3><p>按时间统计 Token 消耗量</p></div><div class="range-switch" data-trend="tokens"></div></div><div id="tokensTrend" class="trend-chart" aria-label="Token 用量折线图"></div></div>
+    </div>
+  </section>
+
+  <section id="tab-keys" class="tab-content">
+    <div class="page-heading"><div><h2>Key 管理</h2><p>创建和维护 API 访问凭证，实时查看用量与状态。</p></div><div class="heading-actions">
+      <button class="btn btn-primary" onclick="showCreateModal()">+ 创建新 Key</button>
+      <button class="btn btn-outline" onclick="loadKeys()">刷新</button>
+    </div></div>
+    <div class="toolbar filter-toolbar">
+      <span class="filter-summary">API Keys</span><span class="filter-hint">按创建时间倒序排列</span>
+    </div>
+    <div id="keysTableContainer" class="table-container">
+      <p class="empty-state">加载中...</p>
+    </div>
+  </section>
+
+  <section id="tab-users" class="tab-content">
+    <div class="page-heading"><div><h2>用户管理</h2><p>管理用户身份、会员等级和关联 API Key。</p></div><div class="heading-actions"><button class="btn btn-primary" onclick="showCreateUserModal()">+ 新建用户</button></div></div>
+    <div class="toolbar filter-toolbar">
+      <input type="text" id="userSearch" class="input-sm" placeholder="搜索邮箱..." style="width:200px">
+      <select id="userRoleFilter" class="input-sm">
+        <option value="">全部角色</option>
+        <option value="user">用户</option>
+        <option value="admin">管理员</option>
+      </select>
+      <select id="userMemberFilter" class="input-sm">
+        <option value="">全部会员</option>
+        <option value="free">Free</option>
+        <option value="plus">Plus</option>
+        <option value="pro">Pro</option>
+      </select>
+      <button class="btn btn-outline" onclick="loadUsers()">查询</button>
+    </div>
+    <div id="usersTableContainer" class="table-container">
+      <p class="empty-state">点击查询加载用户</p>
+    </div>
+  </section>
+
+  <section id="tab-blacklist" class="tab-content">
+    <div class="page-heading"><div><h2>封禁用户</h2><p>阻止指定邮箱访问服务，并保留封禁原因。</p></div></div>
+    <div class="toolbar filter-toolbar">
+      <input type="email" id="blacklistEmail" class="input-sm" placeholder="输入邮箱地址..." style="width:280px">
+      <input type="text" id="blacklistReason" class="input-sm" placeholder="封禁原因（可选）" style="width:200px">
+      <button class="btn btn-danger" onclick="addBlacklist()">封禁</button>
+      <button class="btn btn-outline" onclick="loadBlacklist()">刷新</button>
+    </div>
+    <div id="blacklistTableContainer" class="table-container">
+      <p class="empty-state">点击刷新加载封禁用户</p>
+    </div>
+  </section>
+  <section id="tab-appeals" class="tab-content">
+    <div class="page-heading"><div><h2>申诉管理</h2><p>查看并处理用户的账号封禁申诉。</p></div></div>
+    <div class="toolbar"><button class="btn btn-outline" onclick="loadAppeals()">刷新工单</button><select id="appealStatusFilter" class="input-sm" onchange="loadAppeals()"><option value="">全部状态</option><option value="pending">待审核</option><option value="approved">已通过</option><option value="rejected">已拒绝</option></select></div>
+    <div id="appealsTableContainer" class="table-container"><p class="empty-state">点击刷新加载申诉工单</p></div>
+  </section>
+
+  <section id="tab-tickets" class="tab-content">
+    <div class="page-heading"><div><h2>反馈工单</h2><p>按顶级、紧急、普通优先级，并以提交时间排序。</p></div></div>
+    <div class="toolbar"><button class="btn btn-outline" onclick="loadTickets()">刷新工单</button><span class="filter-hint">待处理工单</span></div>
+    <div id="ticketsTableContainer" class="table-container"><p class="empty-state">加载中...</p></div>
+  </section>
+
+  <section id="tab-ticket-archive" class="tab-content">
+    <div class="page-heading"><div><h2>已处理归档</h2><p>保留最近 200 条已处理反馈，支持按邮箱、主题和内容搜索。</p></div></div>
+    <div class="toolbar"><input id="ticketArchiveSearch" class="input-sm" placeholder="搜索邮箱、主题或内容..." style="width:280px"><button class="btn btn-outline" onclick="loadTicketArchive()">搜索</button></div>
+    <div id="ticketArchiveContainer" class="table-container"><p class="empty-state">点击搜索加载归档</p></div>
+  </section>
+
+  <section id="tab-contributions" class="tab-content">
+    <div class="page-heading"><div><h2>代码贡献审核</h2><p>审核用户提交的 Fork、Issue 或 Pull Request，并发放免费会员权益。</p></div></div>
+    <div class="toolbar"><button class="btn btn-outline" onclick="loadContributions()">刷新贡献</button><select id="contributionStatusFilter" class="input-sm" onchange="loadContributions()"><option value="pending">待审核</option><option value="approved">已通过</option><option value="rejected">已打回</option></select></div>
+    <div id="contributionsTableContainer" class="table-container"><p class="empty-state">加载中...</p></div>
+  </section>
+
+  <section id="tab-logs" class="tab-content">
+    <div class="page-heading"><div><h2>请求日志</h2><p>筛选最近的 API 调用、响应状态和性能信息。</p></div></div>
+    <div class="toolbar filter-toolbar">
+      <label>Key ID: <input type="number" id="logFilterKeyId" placeholder="全部" class="input-sm"></label>
+      <label>用户ID: <input type="text" id="logFilterUserId" placeholder="全部" class="input-sm"></label>
+      <label>方式: <select id="logFilterCallMethod" class="input-sm">
+        <option value="">全部</option>
+        <option value="api_key">API Key</option>
+        <option value="session">Session</option>
+      </select></label>
+      <label>状态: <select id="logFilterStatus" class="input-sm">
+        <option value="">全部</option>
+        <option value="200">200 成功</option>
+        <option value="502">502 失败</option>
+        <option value="500">500 错误</option>
+      </select></label>
+      <button class="btn btn-outline" onclick="loadLogs()">查询</button>
+    </div>
+    <div id="logsTableContainer" class="table-container">
+      <p class="empty-state">点击查询加载日志</p>
+    </div>
+  </section>
+</main>
+</div>
+
+<!-- 创建 Key 模态框 -->
+<div id="modal-create" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <h3>创建新 API Key</h3>
+    <form id="formCreate" onsubmit="handleCreate(event)">
+      <label>名称 *</label>
+      <input type="text" name="name" class="input" required placeholder="例如：iOS Beta 内测 2">
+      <label>用户 ID *</label>
+      <input type="text" name="user_id" class="input" required placeholder="从用户管理页面复制用户 ID">
+      <label>限制方式</label>
+      <select name="limit_type" class="input">
+        <option value="count">按请求次数</option>
+        <option value="tokens">按 Token 用量</option>
+      </select>
+      <label>上限值</label>
+      <input type="number" name="request_limit" class="input" placeholder="留空=不限量" min="0">
+      <label>备注</label>
+      <input type="text" name="notes" class="input" placeholder="发放渠道、用途说明等">
+      <label>过期时间</label>
+      <input type="datetime-local" name="expires_at" class="input">
+      <div class="modal-actions">
+        <button type="submit" class="btn btn-primary">创建</button>
+        <button type="button" class="btn btn-outline" onclick="closeModal('modal-create')">取消</button>
+      </div>
+    </form>
+    <div id="createResult" style="display:none"></div>
+  </div>
+</div>
+
+<!-- 编辑 Key 模态框 -->
+<div id="modal-edit" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <h3>编辑 API Key</h3>
+    <form id="formEdit" onsubmit="handleEdit(event)">
+      <input type="hidden" name="id">
+      <label>名称</label>
+      <input type="text" name="name" class="input" required>
+      <label>启用</label>
+      <select name="enabled" class="input">
+        <option value="1">是</option>
+        <option value="0">否</option>
+      </select>
+      <label>限制方式</label>
+      <select name="limit_type" class="input">
+        <option value="count">按请求次数</option>
+        <option value="tokens">按 Token 用量</option>
+      </select>
+      <label>上限值</label>
+      <input type="number" name="request_limit" class="input" placeholder="留空=不限量" min="0">
+      <label>备注</label>
+      <input type="text" name="notes" class="input">
+      <label>过期时间</label>
+      <input type="datetime-local" name="expires_at" class="input">
+      <div class="modal-actions">
+        <button type="submit" class="btn btn-primary">保存</button>
+        <button type="button" class="btn btn-outline" onclick="closeModal('modal-edit')">取消</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 确认对话框 -->
+<div id="modal-confirm" class="modal-overlay" style="display:none">
+  <div class="modal modal-sm">
+    <h3 id="confirmTitle">确认操作</h3>
+    <p id="confirmMessage"></p>
+    <div class="modal-actions">
+      <button id="confirmOk" class="btn btn-danger">确认</button>
+      <button class="btn btn-outline" onclick="closeModal('modal-confirm')">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- 用户详情模态框 -->
+<div id="modal-user" class="modal-overlay" style="display:none">
+  <div class="modal modal-lg">
+    <h3>用户详情</h3>
+    <div id="userDetailContent"></div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn btn-outline" onclick="closeModal('modal-user')">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 用户 Key 创建模态框 -->
+<div id="modal-user-key" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <h3>为用户创建 API Key</h3>
+    <form id="formUserKey" onsubmit="handleUserKeyCreate(event)">
+      <input type="hidden" name="user_id">
+      <label>名称 *</label>
+      <input type="text" name="name" class="input" required>
+      <label>限制方式</label>
+      <select name="limit_type" class="input">
+        <option value="count">按请求次数</option>
+        <option value="tokens">按 Token 用量</option>
+      </select>
+      <label>上限值</label>
+      <input type="number" name="request_limit" class="input" placeholder="留空=不限量" min="0">
+      <label>备注</label>
+      <input type="text" name="notes" class="input">
+      <div class="modal-actions">
+        <button type="submit" class="btn btn-primary">创建</button>
+        <button type="button" class="btn btn-outline" onclick="closeModal('modal-user-key')">取消</button>
+      </div>
+    </form>
+    <div id="userKeyResult" style="display:none"></div>
+  </div>
+</div>
+
+<!-- 创建用户模态框 -->
+<div id="modal-create-user" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <h3>新建用户</h3>
+    <form id="formCreateUser" onsubmit="handleCreateUserSubmit(event)">
+      <label>邮箱 *</label>
+      <input type="email" name="email" class="input" required placeholder="user@example.com">
+      <label>角色</label>
+      <select name="role" class="input">
+        <option value="user">用户</option>
+        <option value="admin">管理员</option>
+      </select>
+      <label>会员等级</label>
+      <select name="membership_type" class="input">
+        <option value="free">Free</option>
+        <option value="plus">Plus</option>
+        <option value="pro">Pro</option>
+      </select>
+      <p class="text-muted" style="font-size:12px; margin-top:8px;">管理后台创建的用户默认已完成邮箱认证。</p>
+      <div class="modal-actions">
+        <button type="submit" class="btn btn-primary">创建</button>
+        <button type="button" class="btn btn-outline" onclick="closeModal('modal-create-user')">取消</button>
+      </div>
+    </form>
+    <div id="createUserResult" style="display:none"></div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast" style="display:none"></div>
+
+<script src="/pages/admin/app.js" defer></script>
+</body>
+</html>

@@ -23,7 +23,23 @@
 	],
 	"workers_dev": true,
 	"assets": {
-		"directory": "./assets/"
+		"directory": "./assets/",
+		"binding": "ASSETS",
+		"run_worker_first": [
+			"/",
+			"/login",
+			"/admin",
+			"/admin/",
+			"/dashboard",
+			"/dashboard/",
+			"/contributions",
+			"/feedback",
+			"/support",
+			"/appeal/*",
+			"/api/*",
+			"/auth/*",
+			"/oauth/*"
+		]
 	},
 	"routes": [
 		{

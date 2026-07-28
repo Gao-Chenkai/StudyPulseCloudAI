@@ -1,393 +1,3 @@
-/**
- * StudyPulse Cloud AI - 管理后台 UI
- *
- * 纯 HTML/CSS/JS 实现，无框架依赖。
- * 中文界面，桌面优先的响应式设计。
- */
-
-import { generateCsrfToken, applySecurityHeaders } from "./routes.js";
-
-/**
- * 提供管理后台 HTML 页面。
- * 生成 CSRF Token 并嵌入页面。
- *
- * @param {Request} request
- * @param {{ ADMIN_API_TOKEN?: string }} env
- * @returns {Response}
- */
-export function serveAdminPage(request, env) {
-	const csrfToken = generateCsrfToken();
-	const url = new URL(request.url);
-	const secure = url.protocol === "https:";
-
-	const headers = new Headers({ "Content-Type": "text/html; charset=utf-8" });
-	applySecurityHeaders(headers);
-
-	// CSRF Cookie（SameSite=Strict，JS 可通过 document.cookie 读取）
-	headers.append(
-		"Set-Cookie",
-		`admin_csrf=${csrfToken}; Path=/api/admin; SameSite=Strict; Max-Age=3600${secure ? "; Secure" : ""}`,
-	);
-
-	// 检测认证方式
-	const hasCfAccess = !!request.headers.get("Cf-Access-Jwt-Assertion");
-
-	const html = getAdminHtml(csrfToken, hasCfAccess)
-		.replaceAll('<div class="brand-mark">S</div>', '<img class="brand-mark" src="/StudyPulseLogo.png" alt="StudyPulse Logo" style="object-fit:cover">');
-	return new Response(html, {
-		status: 200,
-		headers,
-	});
-}
-
-function getAdminHtml(csrfToken, hasCfAccess) {
-	return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>StudyPulse Cloud AI - 管理后台</title>
-<meta name="csrf-token" content="${csrfToken}">
-<meta name="has-cf-access" content="${hasCfAccess ? "1" : "0"}">
-<style>${CSS}</style>
-</head>
-<body>
-<div class="app-shell">
-  <aside class="sidebar" id="sidebar">
-    <div class="brand-lockup">
-      <div class="brand-mark">S</div>
-      <div>
-        <strong>StudyPulse</strong>
-        <span>Cloud AI</span>
-      </div>
-    </div>
-    <div class="sidebar-label">管理中心</div>
-    <nav class="tabs" style="display:none" id="mainNav" aria-label="主导航">
-      <button class="tab active" data-tab="dashboard"><span class="nav-icon">⌂</span><span>仪表盘</span></button>
-      <button class="tab" data-tab="keys"><span class="nav-icon">⌁</span><span>Key 管理</span></button>
-      <button class="tab" data-tab="users"><span class="nav-icon">◎</span><span>用户管理</span></button>
-      <button class="tab" data-tab="blacklist"><span class="nav-icon">⊘</span><span>封禁用户</span></button>
-      <button class="tab" data-tab="appeals"><span class="nav-icon">✉</span><span>申诉管理</span></button>
-      <button class="tab" data-tab="tickets"><span class="nav-icon">⚑</span><span>反馈工单</span></button>
-      <button class="tab" data-tab="ticket-archive"><span class="nav-icon">↳</span><span>└ 已处理归档</span></button>
-      <button class="tab" data-tab="contributions"><span class="nav-icon">✦</span><span>代码贡献</span></button>
-      <button class="tab" data-tab="logs"><span class="nav-icon">≡</span><span>请求日志</span></button>
-    </nav>
-    <div class="sidebar-footer">
-      <span class="status-dot"></span>
-      <span id="loginStatus">未连接</span>
-      <button id="btnLogout" class="btn btn-sm btn-ghost" style="display:none" onclick="doLogout()">退出</button>
-    </div>
-  </aside>
-
-  <main id="app" class="main-content">
-    <header class="topbar">
-      <button class="mobile-menu" type="button" onclick="toggleSidebar()" aria-label="打开导航">☰</button>
-      <div>
-        <div class="eyebrow">StudyPulse Cloud AI <span class="badge">管理后台</span></div>
-        <h1 id="pageTitle">仪表盘</h1>
-      </div>
-      <div class="topbar-actions">
-        <span class="topbar-status"><span class="status-dot"></span><span id="topbarStatus">安全连接</span></span>
-      </div>
-    </header>
-  <!-- 登录遮罩 -->
-  <div id="loginOverlay" class="login-overlay" style="display:none">
-    <div class="login-container">
-      <div class="login-brand"><div class="brand-mark">S</div><span>StudyPulse Admin</span></div>
-      <h2>欢迎回来</h2>
-      <p class="text-muted">请输入管理员凭证以访问控制台</p>
-      <input type="password" id="loginToken" class="input" placeholder="ADMIN_API_TOKEN">
-      <button class="btn btn-primary btn-block" onclick="doLogin()">登录控制台</button>
-      <p id="loginError" class="error-text" style="display:none"></p>
-    </div>
-  </div>
-
-  <!-- 加载中 -->
-  <div id="loadingOverlay" class="login-overlay">
-    <div class="login-container">
-      <p class="text-muted">连接中...</p>
-    </div>
-  </div>
-
-  <section id="tab-dashboard" class="tab-content active">
-    <div class="page-heading">
-      <div><h2>概览</h2><p>查看当前 API 资源和用户运行状态。</p></div>
-      <button class="btn btn-outline" onclick="loadDashboard()">↻ 刷新数据</button>
-    </div>
-    <div class="stats-grid" id="statsGrid">
-      <div class="stat-card"><div class="stat-card-top"><span class="stat-icon blue">⌁</span><span class="stat-trend">资源</span></div><div class="stat-label">总 Key 数</div><div class="stat-value skeleton">-</div><div class="stat-foot">全部 API 访问凭证</div></div>
-      <div class="stat-card"><div class="stat-card-top"><span class="stat-icon green">✓</span><span class="stat-trend positive" id="enabledRate">--</span></div><div class="stat-label">启用 Key 数</div><div class="stat-value skeleton">-</div><div class="stat-foot">当前可用的访问凭证</div></div>
-      <div class="stat-card"><div class="stat-card-top"><span class="stat-icon violet">↗</span><span class="stat-trend">累计</span></div><div class="stat-label">总请求数</div><div class="stat-value skeleton">-</div><div class="stat-foot">所有 API 请求总量</div></div>
-      <div class="stat-card"><div class="stat-card-top"><span class="stat-icon orange">◎</span><span class="stat-trend">成员</span></div><div class="stat-label">用户数</div><div class="stat-value skeleton">-</div><div class="stat-foot">已注册的用户账户</div></div>
-    </div>
-    <div class="dashboard-grid">
-      <div class="panel health-panel"><div class="panel-heading"><div><h3>系统健康</h3><p>根据当前 Key 状态计算</p></div><span class="health-pill" id="healthPill">检查中</span></div><div class="health-meter"><span id="healthMeterFill"></span></div><div class="health-copy"><strong id="healthHeadline">正在读取状态</strong><span id="healthDetail">请稍候...</span></div></div>
-      <div class="panel quick-panel"><div class="panel-heading"><div><h3>快速操作</h3><p>常用管理动作</p></div></div><div class="quick-actions"><button class="quick-action" onclick="showCreateModal()"><span>＋</span><div><strong>创建 API Key</strong><small>为用户发放新凭证</small></div></button><button class="quick-action" onclick="showCreateUserModal()"><span>◎</span><div><strong>新建用户</strong><small>创建已认证账户</small></div></button><button class="quick-action" onclick="switchTab('logs')"><span>≡</span><div><strong>查看请求日志</strong><small>排查调用与错误</small></div></button></div></div>
-    </div>
-    <div class="trend-grid">
-      <div class="panel trend-panel"><div class="panel-heading"><div><h3>调用次数</h3><p>按时间统计 API 调用量</p></div><div class="range-switch" data-trend="calls"></div></div><div id="callsTrend" class="trend-chart" aria-label="调用次数折线图"></div></div>
-      <div class="panel trend-panel"><div class="panel-heading"><div><h3>Token 用量</h3><p>按时间统计 Token 消耗量</p></div><div class="range-switch" data-trend="tokens"></div></div><div id="tokensTrend" class="trend-chart" aria-label="Token 用量折线图"></div></div>
-    </div>
-  </section>
-
-  <section id="tab-keys" class="tab-content">
-    <div class="page-heading"><div><h2>Key 管理</h2><p>创建和维护 API 访问凭证，实时查看用量与状态。</p></div><div class="heading-actions">
-      <button class="btn btn-primary" onclick="showCreateModal()">+ 创建新 Key</button>
-      <button class="btn btn-outline" onclick="loadKeys()">刷新</button>
-    </div></div>
-    <div class="toolbar filter-toolbar">
-      <span class="filter-summary">API Keys</span><span class="filter-hint">按创建时间倒序排列</span>
-    </div>
-    <div id="keysTableContainer" class="table-container">
-      <p class="empty-state">加载中...</p>
-    </div>
-  </section>
-
-  <section id="tab-users" class="tab-content">
-    <div class="page-heading"><div><h2>用户管理</h2><p>管理用户身份、会员等级和关联 API Key。</p></div><div class="heading-actions"><button class="btn btn-primary" onclick="showCreateUserModal()">+ 新建用户</button></div></div>
-    <div class="toolbar filter-toolbar">
-      <input type="text" id="userSearch" class="input-sm" placeholder="搜索邮箱..." style="width:200px">
-      <select id="userRoleFilter" class="input-sm">
-        <option value="">全部角色</option>
-        <option value="user">用户</option>
-        <option value="admin">管理员</option>
-      </select>
-      <select id="userMemberFilter" class="input-sm">
-        <option value="">全部会员</option>
-        <option value="free">Free</option>
-        <option value="plus">Plus</option>
-        <option value="pro">Pro</option>
-      </select>
-      <button class="btn btn-outline" onclick="loadUsers()">查询</button>
-    </div>
-    <div id="usersTableContainer" class="table-container">
-      <p class="empty-state">点击查询加载用户</p>
-    </div>
-  </section>
-
-  <section id="tab-blacklist" class="tab-content">
-    <div class="page-heading"><div><h2>封禁用户</h2><p>阻止指定邮箱访问服务，并保留封禁原因。</p></div></div>
-    <div class="toolbar filter-toolbar">
-      <input type="email" id="blacklistEmail" class="input-sm" placeholder="输入邮箱地址..." style="width:280px">
-      <input type="text" id="blacklistReason" class="input-sm" placeholder="封禁原因（可选）" style="width:200px">
-      <button class="btn btn-danger" onclick="addBlacklist()">封禁</button>
-      <button class="btn btn-outline" onclick="loadBlacklist()">刷新</button>
-    </div>
-    <div id="blacklistTableContainer" class="table-container">
-      <p class="empty-state">点击刷新加载封禁用户</p>
-    </div>
-  </section>
-  <section id="tab-appeals" class="tab-content">
-    <div class="page-heading"><div><h2>申诉管理</h2><p>查看并处理用户的账号封禁申诉。</p></div></div>
-    <div class="toolbar"><button class="btn btn-outline" onclick="loadAppeals()">刷新工单</button><select id="appealStatusFilter" class="input-sm" onchange="loadAppeals()"><option value="">全部状态</option><option value="pending">待审核</option><option value="approved">已通过</option><option value="rejected">已拒绝</option></select></div>
-    <div id="appealsTableContainer" class="table-container"><p class="empty-state">点击刷新加载申诉工单</p></div>
-  </section>
-
-  <section id="tab-tickets" class="tab-content">
-    <div class="page-heading"><div><h2>反馈工单</h2><p>按顶级、紧急、普通优先级，并以提交时间排序。</p></div></div>
-    <div class="toolbar"><button class="btn btn-outline" onclick="loadTickets()">刷新工单</button><span class="filter-hint">待处理工单</span></div>
-    <div id="ticketsTableContainer" class="table-container"><p class="empty-state">加载中...</p></div>
-  </section>
-
-  <section id="tab-ticket-archive" class="tab-content">
-    <div class="page-heading"><div><h2>已处理归档</h2><p>保留最近 200 条已处理反馈，支持按邮箱、主题和内容搜索。</p></div></div>
-    <div class="toolbar"><input id="ticketArchiveSearch" class="input-sm" placeholder="搜索邮箱、主题或内容..." style="width:280px"><button class="btn btn-outline" onclick="loadTicketArchive()">搜索</button></div>
-    <div id="ticketArchiveContainer" class="table-container"><p class="empty-state">点击搜索加载归档</p></div>
-  </section>
-
-  <section id="tab-contributions" class="tab-content">
-    <div class="page-heading"><div><h2>代码贡献审核</h2><p>审核用户提交的 Fork、Issue 或 Pull Request，并发放免费会员权益。</p></div></div>
-    <div class="toolbar"><button class="btn btn-outline" onclick="loadContributions()">刷新贡献</button><select id="contributionStatusFilter" class="input-sm" onchange="loadContributions()"><option value="pending">待审核</option><option value="approved">已通过</option><option value="rejected">已打回</option></select></div>
-    <div id="contributionsTableContainer" class="table-container"><p class="empty-state">加载中...</p></div>
-  </section>
-
-  <section id="tab-logs" class="tab-content">
-    <div class="page-heading"><div><h2>请求日志</h2><p>筛选最近的 API 调用、响应状态和性能信息。</p></div></div>
-    <div class="toolbar filter-toolbar">
-      <label>Key ID: <input type="number" id="logFilterKeyId" placeholder="全部" class="input-sm"></label>
-      <label>用户ID: <input type="text" id="logFilterUserId" placeholder="全部" class="input-sm"></label>
-      <label>方式: <select id="logFilterCallMethod" class="input-sm">
-        <option value="">全部</option>
-        <option value="api_key">API Key</option>
-        <option value="session">Session</option>
-      </select></label>
-      <label>状态: <select id="logFilterStatus" class="input-sm">
-        <option value="">全部</option>
-        <option value="200">200 成功</option>
-        <option value="502">502 失败</option>
-        <option value="500">500 错误</option>
-      </select></label>
-      <button class="btn btn-outline" onclick="loadLogs()">查询</button>
-    </div>
-    <div id="logsTableContainer" class="table-container">
-      <p class="empty-state">点击查询加载日志</p>
-    </div>
-  </section>
-</main>
-</div>
-
-<!-- 创建 Key 模态框 -->
-<div id="modal-create" class="modal-overlay" style="display:none">
-  <div class="modal">
-    <h3>创建新 API Key</h3>
-    <form id="formCreate" onsubmit="handleCreate(event)">
-      <label>名称 *</label>
-      <input type="text" name="name" class="input" required placeholder="例如：iOS Beta 内测 2">
-      <label>用户 ID *</label>
-      <input type="text" name="user_id" class="input" required placeholder="从用户管理页面复制用户 ID">
-      <label>限制方式</label>
-      <select name="limit_type" class="input">
-        <option value="count">按请求次数</option>
-        <option value="tokens">按 Token 用量</option>
-      </select>
-      <label>上限值</label>
-      <input type="number" name="request_limit" class="input" placeholder="留空=不限量" min="0">
-      <label>备注</label>
-      <input type="text" name="notes" class="input" placeholder="发放渠道、用途说明等">
-      <label>过期时间</label>
-      <input type="datetime-local" name="expires_at" class="input">
-      <div class="modal-actions">
-        <button type="submit" class="btn btn-primary">创建</button>
-        <button type="button" class="btn btn-outline" onclick="closeModal('modal-create')">取消</button>
-      </div>
-    </form>
-    <div id="createResult" style="display:none"></div>
-  </div>
-</div>
-
-<!-- 编辑 Key 模态框 -->
-<div id="modal-edit" class="modal-overlay" style="display:none">
-  <div class="modal">
-    <h3>编辑 API Key</h3>
-    <form id="formEdit" onsubmit="handleEdit(event)">
-      <input type="hidden" name="id">
-      <label>名称</label>
-      <input type="text" name="name" class="input" required>
-      <label>启用</label>
-      <select name="enabled" class="input">
-        <option value="1">是</option>
-        <option value="0">否</option>
-      </select>
-      <label>限制方式</label>
-      <select name="limit_type" class="input">
-        <option value="count">按请求次数</option>
-        <option value="tokens">按 Token 用量</option>
-      </select>
-      <label>上限值</label>
-      <input type="number" name="request_limit" class="input" placeholder="留空=不限量" min="0">
-      <label>备注</label>
-      <input type="text" name="notes" class="input">
-      <label>过期时间</label>
-      <input type="datetime-local" name="expires_at" class="input">
-      <div class="modal-actions">
-        <button type="submit" class="btn btn-primary">保存</button>
-        <button type="button" class="btn btn-outline" onclick="closeModal('modal-edit')">取消</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- 确认对话框 -->
-<div id="modal-confirm" class="modal-overlay" style="display:none">
-  <div class="modal modal-sm">
-    <h3 id="confirmTitle">确认操作</h3>
-    <p id="confirmMessage"></p>
-    <div class="modal-actions">
-      <button id="confirmOk" class="btn btn-danger">确认</button>
-      <button class="btn btn-outline" onclick="closeModal('modal-confirm')">取消</button>
-    </div>
-  </div>
-</div>
-
-<!-- 用户详情模态框 -->
-<div id="modal-user" class="modal-overlay" style="display:none">
-  <div class="modal modal-lg">
-    <h3>用户详情</h3>
-    <div id="userDetailContent"></div>
-    <div class="modal-actions" style="margin-top:16px">
-      <button class="btn btn-outline" onclick="closeModal('modal-user')">关闭</button>
-    </div>
-  </div>
-</div>
-
-<!-- 用户 Key 创建模态框 -->
-<div id="modal-user-key" class="modal-overlay" style="display:none">
-  <div class="modal">
-    <h3>为用户创建 API Key</h3>
-    <form id="formUserKey" onsubmit="handleUserKeyCreate(event)">
-      <input type="hidden" name="user_id">
-      <label>名称 *</label>
-      <input type="text" name="name" class="input" required>
-      <label>限制方式</label>
-      <select name="limit_type" class="input">
-        <option value="count">按请求次数</option>
-        <option value="tokens">按 Token 用量</option>
-      </select>
-      <label>上限值</label>
-      <input type="number" name="request_limit" class="input" placeholder="留空=不限量" min="0">
-      <label>备注</label>
-      <input type="text" name="notes" class="input">
-      <div class="modal-actions">
-        <button type="submit" class="btn btn-primary">创建</button>
-        <button type="button" class="btn btn-outline" onclick="closeModal('modal-user-key')">取消</button>
-      </div>
-    </form>
-    <div id="userKeyResult" style="display:none"></div>
-  </div>
-</div>
-
-<!-- 创建用户模态框 -->
-<div id="modal-create-user" class="modal-overlay" style="display:none">
-  <div class="modal">
-    <h3>新建用户</h3>
-    <form id="formCreateUser" onsubmit="handleCreateUserSubmit(event)">
-      <label>邮箱 *</label>
-      <input type="email" name="email" class="input" required placeholder="user@example.com">
-      <label>角色</label>
-      <select name="role" class="input">
-        <option value="user">用户</option>
-        <option value="admin">管理员</option>
-      </select>
-      <label>会员等级</label>
-      <select name="membership_type" class="input">
-        <option value="free">Free</option>
-        <option value="plus">Plus</option>
-        <option value="pro">Pro</option>
-      </select>
-      <p class="text-muted" style="font-size:12px; margin-top:8px;">管理后台创建的用户默认已完成邮箱认证。</p>
-      <div class="modal-actions">
-        <button type="submit" class="btn btn-primary">创建</button>
-        <button type="button" class="btn btn-outline" onclick="closeModal('modal-create-user')">取消</button>
-      </div>
-    </form>
-    <div id="createUserResult" style="display:none"></div>
-  </div>
-</div>
-
-<!-- Toast -->
-<div id="toast" class="toast" style="display:none"></div>
-
-<script>${JS}</script>
-</body>
-</html>`;
-}
-
-const CSS = `
-:root { --primary:#2563eb; --primary-hover:#1d4ed8; --danger:#dc2626; --danger-hover:#b91c1c; --success:#16a34a; --warning:#d97706; --violet:#7c3aed; --bg:#fff; --surface:#fff; --surface-soft:#f8fafc; --border:#e5e7eb; --border-strong:#d1d5db; --text:#111827; --text-muted:#6b7280; --text-soft:#9ca3af; --radius:12px; --shadow:0 8px 24px rgba(15,23,42,.05); }
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html{background:#fff} body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;background:#fff;color:var(--text);line-height:1.55;min-height:100vh;font-size:14px}
-button,input,select{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid rgba(37,99,235,.2);outline-offset:2px}
-.app-shell{min-height:100vh;display:flex;background:#fff}.sidebar{position:fixed;inset:0 auto 0 0;width:240px;background:#fff;border-right:1px solid var(--border);display:flex;flex-direction:column;padding:24px 14px 16px;z-index:110}.brand-lockup{display:flex;align-items:center;gap:10px;padding:0 12px 34px}.brand-lockup strong{display:block;font-size:15px;letter-spacing:-.02em}.brand-lockup span{display:block;color:var(--text-soft);font-size:11px;margin-top:1px}.brand-mark{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#2563eb,#60a5fa);color:#fff;font-weight:800;box-shadow:0 5px 12px rgba(37,99,235,.22)}.sidebar-label{color:var(--text-soft);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:0 12px 9px}.tabs{display:flex;flex-direction:column;gap:4px}.tab{width:100%;display:flex;align-items:center;gap:11px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:var(--text-muted);font-size:14px;text-align:left;transition:background .18s ease,color .18s ease,transform .18s ease;font-weight:500}.tab:hover{background:#f3f6fb;color:var(--text)}.tab:active{transform:scale(.98)}.tab.active{background:#eff6ff;color:var(--primary);font-weight:650}.nav-icon{width:18px;text-align:center;font-size:19px;line-height:1;color:currentColor}.sidebar-footer{margin-top:auto;border-top:1px solid var(--border);padding:16px 12px 2px;display:flex;align-items:center;gap:7px;color:var(--text-muted);font-size:12px}.sidebar-footer .btn{margin-left:auto}.status-dot{width:7px;height:7px;border-radius:50%;background:var(--success);box-shadow:0 0 0 3px #dcfce7;display:inline-block;flex:none}.main-content{width:calc(100% - 240px);margin-left:240px;min-width:0}.topbar{height:92px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 clamp(24px,4vw,56px);background:#fff;position:sticky;top:0;z-index:80}.eyebrow{color:var(--text-soft);font-size:12px;margin-bottom:3px}.badge{font-size:11px;color:var(--primary);background:#eff6ff;padding:3px 8px;border-radius:999px;margin-left:6px;font-weight:600}.topbar h1{font-size:23px;line-height:1.2;letter-spacing:-.03em}.topbar-status{display:flex;align-items:center;gap:9px;color:var(--text-muted);font-size:12px}.mobile-menu{display:none;border:1px solid var(--border);background:#fff;border-radius:8px;padding:7px 10px;color:var(--text);margin-right:12px}.main-content>section,.main-content>.login-overlay,.main-content>.login-overlay+*{margin-left:auto;margin-right:auto}.tab-content{display:none;padding:34px clamp(24px,4vw,56px) 56px;max-width:1440px}.tab-content.active{display:block}.page-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:26px}.page-heading h2{font-size:25px;line-height:1.2;letter-spacing:-.03em}.page-heading p{color:var(--text-muted);margin-top:6px}.heading-actions{display:flex;gap:9px;flex-wrap:wrap}.stats-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.stat-card,.panel{background:#fff;border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}.stat-card{padding:20px 21px;min-height:157px}.stat-card-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.stat-icon{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;font-size:17px;font-weight:700}.stat-icon.blue{background:#eff6ff;color:#2563eb}.stat-icon.green{background:#f0fdf4;color:#16a34a}.stat-icon.violet{background:#f5f3ff;color:#7c3aed}.stat-icon.orange{background:#fff7ed;color:#ea580c}.stat-trend{font-size:11px;color:var(--text-soft)}.stat-trend.positive{color:var(--success);font-weight:650}.stat-label{font-size:13px;color:var(--text-muted);margin-bottom:3px}.stat-value{font-size:29px;line-height:1.2;font-weight:750;letter-spacing:-.035em}.stat-foot{color:var(--text-soft);font-size:11px;margin-top:9px}.skeleton{color:var(--border-strong)}.dashboard-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}.panel{padding:22px}.panel-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.panel h3{font-size:15px;letter-spacing:-.01em}.panel-heading p{color:var(--text-soft);font-size:12px;margin-top:4px}.health-pill{border-radius:999px;background:#f0fdf4;color:var(--success);padding:4px 9px;font-size:11px;font-weight:650}.health-meter{height:8px;border-radius:10px;background:#f1f5f9;margin:25px 0 13px;overflow:hidden}.health-meter span{display:block;height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,#60a5fa,#2563eb);transition:width .45s ease}.health-copy{display:flex;justify-content:space-between;gap:14px;font-size:12px}.health-copy span{color:var(--text-muted);text-align:right}.quick-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:19px}.quick-action{border:1px solid var(--border);background:#fff;border-radius:10px;padding:13px 10px;text-align:left;display:flex;flex-direction:column;gap:10px;transition:border-color .18s,background .18s,transform .18s}.quick-action:hover{border-color:#93c5fd;background:#f8fbff;transform:translateY(-1px)}.quick-action>span{font-size:18px;color:var(--primary)}.quick-action strong{display:block;font-size:12px}.quick-action small{display:block;color:var(--text-soft);font-size:10px;margin-top:3px;white-space:nowrap}.toolbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center}.filter-toolbar{padding:13px 15px;background:#fff;border:1px solid var(--border);border-radius:10px}.filter-toolbar label{font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:6px}.filter-summary{font-size:13px;font-weight:650}.filter-hint{font-size:12px;color:var(--text-soft);margin-right:auto}.btn{padding:9px 14px;border-radius:9px;border:1px solid transparent;cursor:pointer;font-size:13px;font-weight:600;transition:background .15s ease,border-color .15s ease,transform .15s ease,box-shadow .15s ease;display:inline-flex;align-items:center;justify-content:center;gap:6px}.btn:active{transform:scale(.97)}.btn-primary{background:var(--primary);color:#fff;border-color:var(--primary);box-shadow:0 3px 8px rgba(37,99,235,.17)}.btn-primary:hover{background:var(--primary-hover);border-color:var(--primary-hover)}.btn-outline{background:#fff;color:var(--text);border-color:var(--border-strong)}.btn-outline:hover{background:#f8fafc;border-color:#94a3b8}.btn-ghost{background:transparent;color:var(--text-muted);border:0;padding:3px 0}.btn-ghost:hover{color:var(--primary)}.btn-danger{background:var(--danger);color:#fff;border-color:var(--danger)}.btn-danger:hover{background:var(--danger-hover)}.btn-sm{padding:6px 9px;font-size:11px}.btn-block{width:100%}.input,.input-sm{padding:9px 11px;border:1px solid var(--border-strong);border-radius:8px;font-size:13px;width:100%;background:#fff;color:var(--text);transition:border-color .15s,box-shadow .15s}.input::placeholder,.input-sm::placeholder{color:#a1a1aa}.input:focus,.input-sm:focus{outline:0;border-color:#60a5fa;box-shadow:0 0 0 3px rgba(37,99,235,.11)}.input-sm{padding:7px 10px;font-size:12px;width:auto}.table-container{background:#fff;border:1px solid var(--border);border-radius:12px;overflow-x:auto;box-shadow:var(--shadow)}table{width:100%;border-collapse:collapse;font-size:12px;min-width:760px}th,td{padding:13px 15px;text-align:left;border-bottom:1px solid #f0f1f3;white-space:nowrap}tbody tr:last-child td{border-bottom:0}th{background:#fafafa;font-weight:650;color:var(--text-muted);font-size:11px;letter-spacing:.02em}tbody tr{transition:background .15s}tbody tr:hover td{background:#f8fbff}.status-badge{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;font-size:10px;font-weight:650}.status-enabled{background:#f0fdf4;color:#15803d}.status-disabled{background:#fef2f2;color:#b91c1c}.status-exceeded{background:#fff7ed;color:#c2410c}.actions-cell{display:flex;gap:5px;flex-wrap:wrap}.empty-state{text-align:center;padding:58px 30px;color:var(--text-muted);font-size:13px}.modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.38);backdrop-filter:blur(3px);display:flex;justify-content:center;align-items:center;padding:18px;z-index:200;animation:fadeIn .16s ease}.modal{background:#fff;border:1px solid rgba(255,255,255,.7);border-radius:16px;padding:26px;width:90%;max-width:520px;max-height:90vh;overflow-y:auto;box-shadow:0 24px 70px rgba(15,23,42,.2);animation:slideUp .2s ease}.modal-sm{max-width:400px}.modal-lg{width:720px}.modal h3{margin-bottom:18px;font-size:18px;letter-spacing:-.02em}.modal label{display:block;font-size:12px;color:var(--text-muted);margin-bottom:5px;margin-top:14px}.modal label:first-of-type{margin-top:0}.modal-actions{display:flex;gap:8px;margin-top:22px;justify-content:flex-end}.login-overlay{position:fixed;inset:0;background:#fff;display:flex;justify-content:center;align-items:center;z-index:150}.login-container{max-width:410px;width:calc(100% - 36px);background:#fff;border:1px solid var(--border);border-radius:18px;padding:34px;box-shadow:0 18px 60px rgba(15,23,42,.08)}.login-brand{display:flex;align-items:center;gap:9px;color:var(--text);font-weight:700;margin-bottom:32px}.login-brand .brand-mark{width:30px;height:30px;border-radius:8px;font-size:13px}.login-container h2{font-size:25px;letter-spacing:-.04em;margin-bottom:7px}.login-container .input{margin-top:23px}.login-container .btn{margin-top:12px}.text-muted{color:var(--text-muted);font-size:13px}.error-text{color:var(--danger);font-size:12px;margin-top:9px}.copy-success{color:var(--success);font-size:12px;margin-left:8px}.key-display{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:16px;margin-top:16px}.key-display code{display:block;font-size:13px;word-break:break-all;margin:9px 0;background:#fff;padding:9px 11px;border-radius:7px;border:1px solid var(--border)}.key-warning{color:var(--danger);font-size:11px;margin-top:8px}.toast{position:fixed;bottom:24px;right:24px;padding:12px 17px;border-radius:10px;color:#fff;font-size:13px;font-weight:600;z-index:300;animation:slideUp .2s ease;box-shadow:0 8px 24px rgba(15,23,42,.16)}.toast-success{background:#16a34a}.toast-error{background:#dc2626}.toast-info{background:#2563eb}.user-info-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}.user-info-grid>div{border:1px solid var(--border);border-radius:9px;padding:12px}.user-info-grid strong{font-size:11px;color:var(--text-muted)}.user-info-grid p{color:var(--text);margin-top:5px}.login-container p{line-height:1.6}@keyframes fadeIn{from{opacity:0}to{opacity:1}}@keyframes slideUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-@media (max-width:900px){.sidebar{width:210px}.main-content{width:calc(100% - 210px);margin-left:210px}.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-grid{grid-template-columns:1fr}}
-@media (max-width:680px){.sidebar{transform:translateX(-100%);transition:transform .2s ease;box-shadow:12px 0 30px rgba(15,23,42,.08)}.sidebar.open{transform:translateX(0)}.main-content{width:100%;margin-left:0}.topbar{height:78px;padding:0 18px}.mobile-menu{display:block}.topbar-status{display:none}.tab-content{padding:25px 18px 40px}.page-heading{align-items:stretch;flex-direction:column;margin-bottom:20px}.heading-actions{width:100%}.heading-actions .btn{flex:1}.stats-grid{gap:10px}.stat-card{padding:15px;min-height:140px}.stat-value{font-size:24px}.quick-actions{grid-template-columns:1fr}.quick-action{flex-direction:row;align-items:center;gap:12px}.quick-action small{white-space:normal}.filter-toolbar{align-items:stretch}.filter-toolbar>*{width:100%!important}.filter-hint{margin-right:0}.modal{padding:20px}.toast{left:18px;right:18px;bottom:18px;text-align:center}}
-@media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}}
-.usage-cell{min-width:145px}.usage-label{display:flex;justify-content:space-between;gap:8px;font-size:11px}.usage-label b{color:var(--text-muted);font-weight:600}.usage-bar{height:5px;border-radius:6px;background:#eef2f7;margin-top:6px;overflow:hidden}.usage-bar span{display:block;height:100%;border-radius:inherit;background:#60a5fa}.usage-unlimited{color:var(--text-soft);font-size:11px;margin-top:6px}
-.trend-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}.trend-panel{min-width:0}.range-switch{display:flex;gap:3px;flex-wrap:wrap;justify-content:flex-end;max-width:290px}.range-switch button{border:1px solid transparent;background:#f8fafc;color:var(--text-muted);border-radius:6px;padding:4px 7px;font-size:10px}.range-switch button:hover{color:var(--primary);background:#eff6ff}.range-switch button.active{color:var(--primary);background:#eff6ff;border-color:#bfdbfe;font-weight:700}.trend-chart{height:220px;margin-top:15px}.trend-chart svg{width:100%;height:100%;display:block;overflow:visible}.trend-empty{height:100%;display:grid;place-items:center;color:var(--text-soft);font-size:12px}.trend-meta{display:flex;justify-content:space-between;margin-top:3px;color:var(--text-soft);font-size:11px}
-@media (max-width:900px){.trend-grid{grid-template-columns:1fr}}
-`;
-
-const JS = `
 // ── State ──
 let authToken = "";
 let csrfToken = "";
@@ -593,7 +203,7 @@ async function loadDashboard() {
 function renderTrendRangeSwitches() {
   document.querySelectorAll(".range-switch").forEach((switcher) => {
     const type = switcher.dataset.trend;
-    switcher.innerHTML = TREND_RANGES.map((range) => '<button type="button" class="' + (trendRangeState[type] === range ? "active" : "") + '" onclick="changeTrendRange(\\'' + type + '\\',\\'' + range + '\\')">' + range + '</button>').join("");
+    switcher.innerHTML = TREND_RANGES.map((range) => '<button type="button" class="' + (trendRangeState[type] === range ? "active" : "") + '" onclick="changeTrendRange(\'' + type + '\',\'' + range + '\')">' + range + '</button>').join("");
   });
 }
 
@@ -692,8 +302,8 @@ function renderKeysTable(keys) {
       '<td>' + escapeHtml(k.notes || '-') + '</td>' +
       '<td class="actions-cell">' +
         '<button class="btn btn-sm btn-outline" onclick="showEditModal(' + k.id + ')">编辑</button>' +
-        '<button class="btn btn-sm btn-outline" onclick="confirmResetQuota(' + k.id + ', \\'' + escapeHtml(k.name) + '\\')">重置配额</button>' +
-        '<button class="btn btn-sm btn-danger" onclick="confirmDelete(' + k.id + ', \\'' + escapeHtml(k.name) + '\\')">删除</button>' +
+        '<button class="btn btn-sm btn-outline" onclick="confirmResetQuota(' + k.id + ', \'' + escapeHtml(k.name) + '\')">重置配额</button>' +
+        '<button class="btn btn-sm btn-danger" onclick="confirmDelete(' + k.id + ', \'' + escapeHtml(k.name) + '\')">删除</button>' +
       '</td>' +
     '</tr>';
   }).join("");
@@ -737,7 +347,7 @@ async function handleCreate(e) {
         '<p class="key-warning">此 Key 仅显示一次，请立即复制并安全保存。关闭后无法找回。</p>' +
       '</div>' +
       '<div style="margin-top:12px">' +
-        '<button class="btn btn-primary" onclick="closeModal(\\'modal-create\\'); loadKeys();">完成</button>' +
+        '<button class="btn btn-primary" onclick="closeModal(\'modal-create\'); loadKeys();">完成</button>' +
       '</div>';
     resultDiv.style.display = "block";
   } catch (e) {
@@ -930,7 +540,7 @@ function renderUsersTable(users) {
       '<td>' + (u.membership_expires_at ? formatDate(u.membership_expires_at) : "-") + '</td>' +
       '<td>' + formatDate(u.created_at) + '</td>' +
       '<td class="actions-cell">' +
-        '<button class="btn btn-sm btn-outline" onclick="showUserDetail(\\'' + u.id + '\\')">详情</button>' +
+        '<button class="btn btn-sm btn-outline" onclick="showUserDetail(\'' + u.id + '\')">详情</button>' +
       '</td>' +
     '</tr>';
   }).join("");
@@ -968,7 +578,7 @@ async function showUserDetail(userId) {
         keysHtml += '<tr><td>' + k.id + '</td><td>' + escapeHtml(k.name) + '</td><td>' + enabled + '</td><td>' + k.request_count + '次</td>' +
           '<td class="actions-cell">' +
             '<button class="btn btn-sm btn-outline" onclick="disableKey(' + k.id + ')">' + (k.enabled ? '禁用' : '启用') + '</button>' +
-            '<button class="btn btn-sm btn-danger" onclick="confirmDeleteKey(' + k.id + ', \\'' + escapeHtml(k.name) + '\\')">删除</button>' +
+            '<button class="btn btn-sm btn-danger" onclick="confirmDeleteKey(' + k.id + ', \'' + escapeHtml(k.name) + '\')">删除</button>' +
           '</td></tr>';
       });
       keysHtml += '</tbody></table></div>';
@@ -976,7 +586,7 @@ async function showUserDetail(userId) {
 
     const activeSessions = (sessions || []).filter(s => !s.revoked_at && new Date(s.expires_at).getTime() > Date.now());
     let sessionsHtml = '<div class="detail-section-heading"><span>登录设备 (' + activeSessions.length + '个在线)</span>' +
-      (activeSessions.length > 0 ? '<button class="btn btn-sm btn-danger" onclick="revokeUserSessions(\\'' + userId + '\\')">踢下线（全部设备）</button>' : '') +
+      (activeSessions.length > 0 ? '<button class="btn btn-sm btn-danger" onclick="revokeUserSessions(\'' + userId + '\')">踢下线（全部设备）</button>' : '') +
       '</div>';
     if (activeSessions.length > 0) {
       sessionsHtml += '<div class="table-container"><table><thead><tr><th>设备</th><th>最近使用</th><th>登录时间</th><th>过期时间</th></tr></thead><tbody>';
@@ -996,19 +606,19 @@ async function showUserDetail(userId) {
         '<div><strong>验证状态</strong><p>' + (user.email_verified ? "已验证" : "未验证") + '</p></div>' +
         '<div><strong>GitHub 绑定</strong><p>' + (user.github_bound ? "已绑定" : "未绑定") + '</p></div>' +
         '<div><strong>密码设置</strong><p>' + (user.password_set ? "已设置" : "未设置") + '</p></div>' +
-        '<div><strong>角色</strong><p><select id="editRole" class="input-sm" onchange="updateUserField(\\'' + userId + '\\', \\'role\\', this.value)"><option value="user"' + (user.role==="user"?" selected":"") + '>用户</option><option value="admin"' + (user.role==="admin"?" selected":"") + '>管理员</option></select></p></div>' +
-        '<div><strong>会员</strong><p><select id="editMember" class="input-sm" onchange="updateUserField(\\'' + userId + '\\', \\'membership_type\\', this.value)"><option value="free"' + (user.membership_type==="free"?" selected":"") + '>Free</option><option value="plus"' + (user.membership_type==="plus"?" selected":"") + '>Plus</option><option value="pro"' + (user.membership_type==="pro"?" selected":"") + '>Pro</option></select></p></div>' +
+        '<div><strong>角色</strong><p><select id="editRole" class="input-sm" onchange="updateUserField(\'' + userId + '\', \'role\', this.value)"><option value="user"' + (user.role==="user"?" selected":"") + '>用户</option><option value="admin"' + (user.role==="admin"?" selected":"") + '>管理员</option></select></p></div>' +
+        '<div><strong>会员</strong><p><select id="editMember" class="input-sm" onchange="updateUserField(\'' + userId + '\', \'membership_type\', this.value)"><option value="free"' + (user.membership_type==="free"?" selected":"") + '>Free</option><option value="plus"' + (user.membership_type==="plus"?" selected":"") + '>Plus</option><option value="pro"' + (user.membership_type==="pro"?" selected":"") + '>Pro</option></select></p></div>' +
         '<div><strong>到期时间</strong><p>' + (user.membership_expires_at ? formatDate(user.membership_expires_at) : "永久") + '</p></div>' +
         '<div><strong>注册时间</strong><p>' + formatDate(user.created_at) + '</p></div>' +
         '<div><strong>今日请求</strong><p>' + (stats ? stats.dailyRequests : "-") + '</p></div>' +
         '<div><strong>月Token</strong><p>' + (stats ? stats.monthlyTokens.toLocaleString() : "-") + '</p></div>' +
       '</div>' +
-      '<button class="btn btn-primary" style="margin-top:12px" onclick="showUserKeyModal(\\'' + userId + '\\')">+ 为新 Key</button>' +
-      (user.status === "banned" ? '<span class="status-badge status-disabled" style="margin:12px 0 0 8px">已封禁</span>' : '<button class="btn btn-sm btn-danger" style="margin:12px 0 0 8px" onclick="banUser(\\'' + userId + '\\')">封禁账号</button>') +
-      (user.role !== "admin" ? '<button class="btn btn-sm btn-danger" style="margin:12px 0 0 8px" data-email="' + escapeHtml(user.email) + '" onclick="deleteUser(\\'' + userId + '\\', this.dataset.email)">删除账户</button>' : '') +
+      '<button class="btn btn-primary" style="margin-top:12px" onclick="showUserKeyModal(\'' + userId + '\')">+ 为新 Key</button>' +
+      (user.status === "banned" ? '<span class="status-badge status-disabled" style="margin:12px 0 0 8px">已封禁</span>' : '<button class="btn btn-sm btn-danger" style="margin:12px 0 0 8px" onclick="banUser(\'' + userId + '\')">封禁账号</button>') +
+      (user.role !== "admin" ? '<button class="btn btn-sm btn-danger" style="margin:12px 0 0 8px" data-email="' + escapeHtml(user.email) + '" onclick="deleteUser(\'' + userId + '\', this.dataset.email)">删除账户</button>' : '') +
       keysHtml +
       '<div class="user-sessions">' + sessionsHtml + '</div>' +
-      '<style>.user-info-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; } .user-info-grid p { color: var(--text); margin-top: 4px; } .user-sessions { margin-top: 20px; } .detail-section-heading { display:flex; justify-content:space-between; align-items:center; margin: 18px 0 8px; font-weight: 600; }</style>';
+      '';
   } catch (e) {
     document.getElementById("userDetailContent").innerHTML = '<p class="error-text">加载失败: ' + escapeHtml(e.message) + '</p>';
   }
@@ -1083,7 +693,7 @@ async function handleUserKeyCreate(e) {
         '<p class="key-warning">此 Key 仅显示一次，请立即复制并安全保存。</p>' +
       '</div>' +
       '<div style="margin-top:12px">' +
-        '<button class="btn btn-primary" onclick="closeModal(\\'modal-user-key\\'); showUserDetail(\\'' + body.user_id + '\\')">完成</button>' +
+        '<button class="btn btn-primary" onclick="closeModal(\'modal-user-key\'); showUserDetail(\'' + body.user_id + '\')">完成</button>' +
       '</div>';
     resultDiv.style.display = "block";
   } catch (e) {
@@ -1126,8 +736,8 @@ async function handleCreateUserSubmit(e) {
         '<p style="color:var(--success);margin-top:4px">已默认认证，可直接登录使用。</p>' +
       '</div>' +
       '<div style="margin-top:12px">' +
-        '<button class="btn btn-primary" onclick="closeModal(\\'modal-create-user\\'); loadUsers()">完成</button>' +
-        '<button class="btn btn-outline" style="margin-left:8px" onclick="closeModal(\\'modal-create-user\\'); showUserDetail(\\'' + user.id + '\\')">查看详情</button>' +
+        '<button class="btn btn-primary" onclick="closeModal(\'modal-create-user\'); loadUsers()">完成</button>' +
+        '<button class="btn btn-outline" style="margin-left:8px" onclick="closeModal(\'modal-create-user\'); showUserDetail(\'' + user.id + '\')">查看详情</button>' +
       '</div>';
     resultDiv.style.display = "block";
   } catch (e) {
@@ -1185,7 +795,7 @@ async function loadAppeals() {
     const status = document.getElementById("appealStatusFilter").value;
     const { data } = await apiJson("GET", "/api/admin/appeals" + (status ? "?status=" + encodeURIComponent(status) : ""));
     if (!data.length) { container.innerHTML = '<p class="empty-state">暂无申诉工单</p>'; return; }
-    container.innerHTML = '<table><thead><tr><th>用户邮箱</th><th>封禁原因</th><th>申诉内容</th><th>提交时间</th><th>状态</th><th>操作</th></tr></thead><tbody>' + data.map(a => '<tr><td>' + escapeHtml(a.email) + '</td><td>' + escapeHtml(a.reason) + '</td><td style="white-space:normal;min-width:260px">' + escapeHtml(a.content) + '</td><td>' + formatDate(a.created_at) + '</td><td><span class="status-badge ' + (a.status === "pending" ? "status-exceeded" : a.status === "approved" ? "status-enabled" : "status-disabled") + '">' + escapeHtml(a.status) + '</span></td><td>' + (a.status === "pending" ? '<button class="btn btn-sm btn-primary" onclick="reviewAppeal(\\'' + a.id + '\\',\\'approved\\')">通过</button> <button class="btn btn-sm btn-danger" onclick="reviewAppeal(\\'' + a.id + '\\',\\'rejected\\')">拒绝</button>' : '-') + '</td></tr>').join("") + '</tbody></table>';
+    container.innerHTML = '<table><thead><tr><th>用户邮箱</th><th>封禁原因</th><th>申诉内容</th><th>提交时间</th><th>状态</th><th>操作</th></tr></thead><tbody>' + data.map(a => '<tr><td>' + escapeHtml(a.email) + '</td><td>' + escapeHtml(a.reason) + '</td><td style="white-space:normal;min-width:260px">' + escapeHtml(a.content) + '</td><td>' + formatDate(a.created_at) + '</td><td><span class="status-badge ' + (a.status === "pending" ? "status-exceeded" : a.status === "approved" ? "status-enabled" : "status-disabled") + '">' + escapeHtml(a.status) + '</span></td><td>' + (a.status === "pending" ? '<button class="btn btn-sm btn-primary" onclick="reviewAppeal(\'' + a.id + '\',\'approved\')">通过</button> <button class="btn btn-sm btn-danger" onclick="reviewAppeal(\'' + a.id + '\',\'rejected\')">拒绝</button>' : '-') + '</td></tr>').join("") + '</tbody></table>';
   } catch (e) { container.innerHTML = '<p class="empty-state error-text">加载失败: ' + escapeHtml(e.message) + '</p>'; }
 }
 
@@ -1229,7 +839,7 @@ async function loadContributions() {
     const { data } = await apiJson("GET", "/api/admin/contributions?status=" + encodeURIComponent(status));
     if (!data.length) { container.innerHTML = '<p class="empty-state">暂无贡献记录</p>'; return; }
     const typeName = { fork: "Fork", issue: "Issue", pull_request: "Pull Request", other: "其他" };
-    container.innerHTML = '<table><thead><tr><th>用户</th><th>贡献</th><th>说明</th><th>提交时间</th><th>状态</th><th>操作</th></tr></thead><tbody>' + data.map(c => '<tr><td>' + escapeHtml(c.email) + '</td><td><strong>' + escapeHtml(typeName[c.contribution_type] || "其他") + '</strong><br><a href="' + escapeHtml(c.contribution_url) + '" target="_blank" rel="noopener">查看链接</a></td><td style="white-space:normal;min-width:220px">' + escapeHtml(c.description || "-") + '</td><td>' + formatDate(c.created_at) + '</td><td>' + escapeHtml(c.status === "pending" ? "待审核" : c.status === "approved" ? "已通过" : "已打回") + (c.awarded_membership ? '<br><small>' + escapeHtml(c.awarded_membership.toUpperCase()) + '</small>' : '') + '</td><td>' + (c.status === "pending" ? '<button class="btn btn-sm btn-primary" onclick="reviewContribution(\\'' + c.id + '\\',\\'approved\\')">通过</button> <button class="btn btn-sm btn-danger" onclick="reviewContribution(\\'' + c.id + '\\',\\'rejected\\')">打回</button>' : escapeHtml(c.admin_reply || "-")) + '</td></tr>').join("") + '</tbody></table>';
+    container.innerHTML = '<table><thead><tr><th>用户</th><th>贡献</th><th>说明</th><th>提交时间</th><th>状态</th><th>操作</th></tr></thead><tbody>' + data.map(c => '<tr><td>' + escapeHtml(c.email) + '</td><td><strong>' + escapeHtml(typeName[c.contribution_type] || "其他") + '</strong><br><a href="' + escapeHtml(c.contribution_url) + '" target="_blank" rel="noopener">查看链接</a></td><td style="white-space:normal;min-width:220px">' + escapeHtml(c.description || "-") + '</td><td>' + formatDate(c.created_at) + '</td><td>' + escapeHtml(c.status === "pending" ? "待审核" : c.status === "approved" ? "已通过" : "已打回") + (c.awarded_membership ? '<br><small>' + escapeHtml(c.awarded_membership.toUpperCase()) + '</small>' : '') + '</td><td>' + (c.status === "pending" ? '<button class="btn btn-sm btn-primary" onclick="reviewContribution(\'' + c.id + '\',\'approved\')">通过</button> <button class="btn btn-sm btn-danger" onclick="reviewContribution(\'' + c.id + '\',\'rejected\')">打回</button>' : escapeHtml(c.admin_reply || "-")) + '</td></tr>').join("") + '</tbody></table>';
   } catch (e) { container.innerHTML = '<p class="empty-state error-text">加载失败: ' + escapeHtml(e.message) + '</p>'; }
 }
 
@@ -1253,7 +863,7 @@ function renderBlacklistTable(list) {
       '<td>' + escapeHtml(item.reason || '-') + '</td>' +
       '<td>' + formatDate(item.created_at) + '</td>' +
       '<td class="actions-cell">' +
-        '<button class="btn btn-sm btn-danger" onclick="confirmRemoveBlacklist(\\'' + escapeHtml(item.email) + '\\')">解除封禁</button>' +
+        '<button class="btn btn-sm btn-danger" onclick="confirmRemoveBlacklist(\'' + escapeHtml(item.email) + '\')">解除封禁</button>' +
       '</td>' +
     '</tr>';
   }).join("");
@@ -1331,7 +941,7 @@ function formatDate(s) {
     // UTC designator before parsing so the browser does not treat it as local
     // time (the value stored in the database remains unchanged).
     const value = String(s).trim();
-    const utcValue = /^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$/.test(value)
+    const utcValue = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(value)
       ? value.replace(" ", "T") + "Z"
       : value;
     const d = new Date(utcValue);
@@ -1346,6 +956,3 @@ document.addEventListener("click", (e) => {
     e.target.style.display = "none";
   }
 });
-`;
-
-export { CSS, JS, getAdminHtml };

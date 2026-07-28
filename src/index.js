@@ -20,18 +20,15 @@ import { authenticate } from "./auth.js";
 import { chat as minimaxChat, chatStream as minimaxChatStream } from "./providers/minimax.js";
 import { incrementApiKeyUsage } from "./database/api_keys.js";
 import { handleAdminApi } from "./admin/routes.js";
-import { serveAdminPage } from "./admin/ui.js";
 import { writeRequestLog } from "./admin/database.js";
 import { authenticateRequest } from "./auth/middleware.js";
 import { sendVerificationCode, verifyCode } from "./auth/email.js";
 import { createSession, destroySession } from "./auth/session.js";
-import { handleGitHubBindSendCode, handleGitHubBindVerify, handleGitHubCallback, handleGitHubStart, renderGitHubBindPage } from "./auth/oauth.js";
-import { renderLoginPage } from "./auth/login-page-app.js";
+import { handleGitHubBindSendCode, handleGitHubBindVerify, handleGitHubCallback, handleGitHubStart } from "./auth/oauth.js";
 import { checkUserQuota, getMembershipPlan, recordUsage } from "./membership/membership.js";
 import { getUserById } from "./users/users.js";
-import { handleAppealPage, handleSubmitAppeal } from "./appeals/routes.js";
+import { handleAppealStatus, handleSubmitAppeal } from "./appeals/routes.js";
 import {
-	handleSupportPage,
 	handleSupportSendCode,
 	handleSupportVerifyCode,
 	handleSupportMe,
@@ -39,7 +36,7 @@ import {
 	handleCreateTicket,
 } from "./support/routes.js";
 import { handleUserDashboardApi } from "./dashboard/routes.js";
-import { serveDashboardPage } from "./dashboard/ui.js";
+import { authPageOptions, serveAdminPage, serveStaticPage } from "./ui/static-pages.js";
 import {
 	handleAuthSendCode,
 	handlePasswordChange,
@@ -114,16 +111,20 @@ export default {
 				hostname.startsWith("127.0.0.1") ||
 				hostname.endsWith(".workers.dev")
 			) {
-				if ((pathname === "/dashboard" || pathname === "/dashboard/" || pathname === "/contributions" || pathname === "/feedback") && method === "GET") return serveDashboardPage(pathname);
+				if (pathname === "/login" && method === "GET") return withCors(await serveStaticPage(request, env, "/pages/auth/index.html", authPageOptions()), request);
+				if (pathname === "/support" && method === "GET") return withCors(await serveStaticPage(request, env, "/pages/support/index.html"), request);
+				if (pathname === "/oauth/github/bind" && method === "GET") return withCors(await serveStaticPage(request, env, "/pages/auth-bind/index.html", authPageOptions()), request);
+				if ((pathname === "/dashboard" || pathname === "/dashboard/" || pathname === "/contributions" || pathname === "/feedback") && method === "GET") return withCors(await serveStaticPage(request, env, "/pages/dashboard/index.html"), request);
+				if ((pathname === "/admin" || pathname === "/admin/") && method === "GET") return withCors(await serveAdminPage(request, env), request);
+				if (pathname.startsWith("/appeal/") && method === "GET") return withCors(await serveStaticPage(request, env, "/pages/appeal/index.html"), request);
 				if (pathname === "/api/user/dashboard" || pathname === "/api/user/contributions" || pathname === "/api/user/feedback") return withCors(await handleUserDashboardApi(request, env, pathname), request);
 				if (
 					pathname.startsWith("/api/admin/") ||
-					pathname.startsWith("/admin") ||
-					pathname.startsWith("/appeal/")
+					pathname.startsWith("/admin")
 				) {
 					return withCors(await handleAdmin(request, env, ctx, pathname, method), request);
 				}
-				if (pathname === "/api/appeals" && method === "POST") {
+				if (pathname === "/api/appeals" && (method === "GET" || method === "POST")) {
 					return withCors(await handleSupport(request, env, pathname, method), request);
 				}
 				return withCors(await handlePublicApi(request, env, ctx, pathname, method), request);
@@ -155,7 +156,7 @@ function corsHeaders(request) {
 }
 
 function handleDashboard(request, env, pathname, method) {
-	if ((pathname === "/" || pathname === "/dashboard" || pathname === "/dashboard/" || pathname === "/contributions" || pathname === "/feedback") && method === "GET") return serveDashboardPage(pathname === "/contributions" || pathname === "/feedback" ? pathname : "/dashboard");
+	if ((pathname === "/" || pathname === "/dashboard" || pathname === "/dashboard/" || pathname === "/contributions" || pathname === "/feedback") && method === "GET") return serveStaticPage(request, env, "/pages/dashboard/index.html");
 	if (pathname === "/api/user/dashboard" || pathname === "/api/user/contributions" || pathname === "/api/user/feedback") return handleUserDashboardApi(request, env, pathname);
 	if (pathname === "/api/v1/auth/logout" && method === "POST") return destroySession(request, env).then(() => Response.json({ success: true }));
 	return Response.json({ error: "Not Found" }, { status: 404 });
@@ -177,7 +178,7 @@ function withCors(response, request) {
 
 function handleAdmin(request, env, ctx, pathname, method) {
 	if (pathname.startsWith("/appeal/") && method === "GET") {
-		return handleAppealPage(request, env, pathname.slice("/appeal/".length));
+		return serveStaticPage(request, env, "/pages/appeal/index.html");
 	}
 	// 管理后台 WebUI
 	if ((pathname === "/admin" || pathname === "/admin/") && method === "GET") {
@@ -197,10 +198,11 @@ function handleAdmin(request, env, ctx, pathname, method) {
 // ────────────────────────────────────────────────────────────────────────────
 
 function handleSupport(request, env, pathname, method) {
-	if (pathname === "/" && method === "GET") return handleSupportPage();
+	if (pathname === "/" && method === "GET") return serveStaticPage(request, env, "/pages/support/index.html");
 	if (pathname.startsWith("/appeal/") && method === "GET") {
-		return handleAppealPage(request, env, pathname.slice("/appeal/".length));
+		return serveStaticPage(request, env, "/pages/appeal/index.html");
 	}
+	if (pathname === "/api/appeals" && method === "GET") return handleAppealStatus(request, env);
 	if (pathname === "/api/appeals" && method === "POST") return handleSubmitAppeal(request, env);
 	if (pathname === "/api/support/auth/send-code" && method === "POST") return handleSupportSendCode(request, env);
 	if (pathname === "/api/support/auth/verify-code" && method === "POST") return handleSupportVerifyCode(request, env);
@@ -287,10 +289,10 @@ function handlePublicApi(request, env, ctx, pathname, method) {
 }
 
 async function handleAuthCenter(request, env, pathname, method) {
-	if ((pathname === "/" || pathname === "/login") && method === "GET") return renderLoginPage();
+	if ((pathname === "/" || pathname === "/login") && method === "GET") return serveStaticPage(request, env, "/pages/auth/index.html", authPageOptions());
 	if (pathname === "/oauth/github/start" && method === "GET") return handleGitHubStart(request, env);
 	if (pathname === "/oauth/github/callback" && method === "GET") return handleGitHubCallback(request, env);
-	if (pathname === "/oauth/github/bind" && method === "GET") return renderGitHubBindPage(request);
+	if (pathname === "/oauth/github/bind" && method === "GET") return serveStaticPage(request, env, "/pages/auth-bind/index.html", authPageOptions());
 	if (pathname === "/oauth/github/bind/send-code" && method === "POST") return handleGitHubBindSendCode(request, env);
 	if (pathname === "/oauth/github/bind/verify" && method === "POST") return handleGitHubBindVerify(request, env);
 	if (pathname === "/auth/send-code" && method === "POST") return handleAuthSendCode(request, env);
