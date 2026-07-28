@@ -1,0 +1,422 @@
+/**
+ * StudyPulse Cloud AI - Anthropic-Inspired Design System & Tokens
+ * Warm Minimalist, Editorial Typography, Humanistic Palette
+ */
+
+/* -------------------------------------------------------------------------- */
+/* 1. Design Tokens (Anthropic Warm Palette Default)                          */
+/* -------------------------------------------------------------------------- */
+:root {
+  /* Brand Accent: Warm Terracotta / Clay */
+  --sp-primary: #d97757;
+  --sp-primary-hover: #c86648;
+  --sp-primary-active: #b3563b;
+  --sp-primary-light: rgba(217, 119, 87, 0.12);
+  --sp-primary-glow: rgba(217, 119, 87, 0.25);
+  
+  --sp-accent: #d97757;
+  --sp-gradient-brand: linear-gradient(135deg, #d97757 0%, #c86648 100%);
+  --sp-gradient-warm: linear-gradient(180deg, #f7f4ec 0%, #efebe1 100%);
+
+  /* Neutrals & Surfaces (Warm Parchment / Cream) */
+  --sp-bg-page: #f7f4ec;
+  --sp-bg-surface: #fcfaf5;
+  --sp-bg-surface-elevated: #ffffff;
+  --sp-bg-subtle: #efebe1;
+  --sp-bg-hover: #f3efe6;
+  
+  --sp-text-primary: #24211d;
+  --sp-text-secondary: #625d55;
+  --sp-text-muted: #898278;
+  --sp-text-on-primary: #fcfaf5;
+
+  /* Borders & Dividers */
+  --sp-border-color: #d8d1c5;
+  --sp-border-subtle: #eae4d9;
+  --sp-border-strong: #b8b0a3;
+  --sp-border-focus: rgba(36, 33, 29, 0.2);
+
+  /* Status Colors (Subtle Natural Tones) */
+  --sp-success: #557a63;
+  --sp-success-bg: rgba(85, 122, 99, 0.12);
+  --sp-warning: #a86f32;
+  --sp-warning-bg: rgba(168, 111, 50, 0.12);
+  --sp-danger: #a84f45;
+  --sp-danger-bg: rgba(168, 79, 69, 0.12);
+  --sp-info: #526f86;
+  --sp-info-bg: rgba(82, 111, 134, 0.12);
+
+  /* Typography Systems (Serif Display + Sans Body) */
+  --sp-font-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", Georgia, serif;
+  --sp-font-sans: "Inter", "SF Pro Text", "Noto Sans SC", "PingFang SC", system-ui, sans-serif;
+  --sp-font-mono: "SFMono-Regular", "JetBrains Mono", "IBM Plex Mono", monospace;
+  --sp-font-family: var(--sp-font-sans);
+
+  /* Typography Scales */
+  --sp-font-xs: 0.75rem;     /* 12px */
+  --sp-font-sm: 0.875rem;    /* 14px */
+  --sp-font-base: 1rem;      /* 16px */
+  --sp-font-lg: 1.125rem;    /* 18px */
+  --sp-font-xl: 1.375rem;    /* 22px */
+  --sp-font-2xl: 1.75rem;    /* 28px */
+  --sp-font-3xl: 2.25rem;    /* 36px */
+
+  /* Radii (Restrained & Elegant) */
+  --sp-radius-sm: 6px;
+  --sp-radius-md: 8px;
+  --sp-radius-lg: 12px;
+  --sp-radius-xl: 18px;
+  --sp-radius-full: 9999px;
+
+  /* Elevation / Shadows (Restrained, Editorial) */
+  --sp-shadow-sm: 0 1px 3px rgba(36, 33, 29, 0.04);
+  --sp-shadow-md: 0 4px 16px -2px rgba(36, 33, 29, 0.06), 0 2px 6px -1px rgba(36, 33, 29, 0.03);
+  --sp-shadow-lg: 0 12px 36px -4px rgba(36, 33, 29, 0.08), 0 4px 12px -2px rgba(36, 33, 29, 0.04);
+
+  /* Glassmorphism / Warm Frosted Surface */
+  --sp-glass-bg: rgba(252, 250, 245, 0.88);
+  --sp-glass-border: rgba(216, 209, 197, 0.7);
+  --sp-glass-blur: blur(12px);
+
+  /* Transitions */
+  --sp-transition-fast: 0.16s cubic-bezier(0.4, 0, 0.2, 1);
+  --sp-transition-normal: 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* -------------------------------------------------------------------------- */
+/* 2. Dark Theme Tokens (Warm Deep Charcoal & Sand)                           */
+/* -------------------------------------------------------------------------- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --sp-bg-page: #282621;
+    --sp-bg-surface: #34312b;
+    --sp-bg-surface-elevated: #3f3c35;
+    --sp-bg-subtle: #3a3730;
+    --sp-bg-hover: #45423a;
+
+    --sp-text-primary: #f5f0e7;
+    --sp-text-secondary: #d1c9bd;
+    --sp-text-muted: #9c9487;
+
+    --sp-border-color: #4a463d;
+    --sp-border-subtle: #3a3730;
+    --sp-border-strong: #5e594f;
+
+    --sp-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --sp-shadow-md: 0 6px 20px -2px rgba(0, 0, 0, 0.4);
+    --sp-shadow-lg: 0 16px 40px -6px rgba(0, 0, 0, 0.5);
+
+    --sp-glass-bg: rgba(52, 49, 43, 0.88);
+    --sp-glass-border: rgba(255, 255, 255, 0.1);
+  }
+}
+
+[data-theme="dark"] {
+  --sp-bg-page: #282621;
+  --sp-bg-surface: #34312b;
+  --sp-bg-surface-elevated: #3f3c35;
+  --sp-bg-subtle: #3a3730;
+  --sp-bg-hover: #45423a;
+
+  --sp-text-primary: #f5f0e7;
+  --sp-text-secondary: #d1c9bd;
+  --sp-text-muted: #9c9487;
+
+  --sp-border-color: #4a463d;
+  --sp-border-subtle: #3a3730;
+  --sp-border-strong: #5e594f;
+
+  --sp-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --sp-shadow-md: 0 6px 20px -2px rgba(0, 0, 0, 0.4);
+  --sp-shadow-lg: 0 16px 40px -6px rgba(0, 0, 0, 0.5);
+
+  --sp-glass-bg: rgba(52, 49, 43, 0.88);
+  --sp-glass-border: rgba(255, 255, 255, 0.1);
+}
+
+/* -------------------------------------------------------------------------- */
+/* 3. Global Resets & Typography                                             */
+/* -------------------------------------------------------------------------- */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--sp-font-sans);
+  font-size: var(--sp-font-sm);
+  color: var(--sp-text-primary);
+  background-color: var(--sp-bg-page);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.6;
+}
+
+h1, h2, h3, .sp-serif-title {
+  font-family: var(--sp-font-serif);
+  font-weight: 400;
+  color: var(--sp-text-primary);
+}
+
+/* -------------------------------------------------------------------------- */
+/* 4. Brand Component (.sp-brand)                                            */
+/* -------------------------------------------------------------------------- */
+.sp-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.sp-brand-mark {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--sp-radius-md);
+  object-fit: cover;
+  background: var(--sp-primary);
+  display: grid;
+  place-items: center;
+  color: var(--sp-text-on-primary);
+  font-family: var(--sp-font-serif);
+  font-weight: 600;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.sp-brand-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.sp-brand-title {
+  font-family: var(--sp-font-serif);
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--sp-text-primary);
+  line-height: 1.2;
+}
+
+.sp-brand-subtitle {
+  font-family: var(--sp-font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--sp-primary);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-top: 1px;
+}
+
+/* -------------------------------------------------------------------------- */
+/* 5. Buttons (.sp-btn)                                                       */
+/* -------------------------------------------------------------------------- */
+.sp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 18px;
+  font-size: var(--sp-font-sm);
+  font-weight: 600;
+  font-family: var(--sp-font-sans);
+  line-height: 1.4;
+  border-radius: var(--sp-radius-md);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all var(--sp-transition-fast);
+  text-decoration: none;
+  user-select: none;
+}
+
+.sp-btn-primary {
+  background: var(--sp-primary);
+  color: var(--sp-text-on-primary);
+  border: 1px solid var(--sp-primary);
+}
+
+.sp-btn-primary:hover {
+  background: var(--sp-primary-hover);
+  border-color: var(--sp-primary-hover);
+  transform: translateY(-1px);
+}
+
+.sp-btn-secondary {
+  background: var(--sp-bg-surface);
+  border: 1px solid var(--sp-border-strong);
+  color: var(--sp-text-primary);
+}
+
+.sp-btn-secondary:hover {
+  background: var(--sp-bg-hover);
+  border-color: var(--sp-text-primary);
+  transform: translateY(-1px);
+}
+
+.sp-btn-ghost {
+  background: transparent;
+  color: var(--sp-text-secondary);
+  border: 1px solid transparent;
+}
+
+.sp-btn-ghost:hover {
+  background: var(--sp-bg-subtle);
+  color: var(--sp-text-primary);
+}
+
+.sp-btn-danger {
+  background: var(--sp-danger);
+  color: #ffffff;
+  border: 1px solid var(--sp-danger);
+}
+
+.sp-btn-danger:hover {
+  opacity: 0.92;
+}
+
+.sp-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.sp-btn-sm {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: var(--sp-font-xs);
+  border-radius: var(--sp-radius-sm);
+}
+
+.sp-btn-lg {
+  min-height: 48px;
+  padding: 0 24px;
+  font-size: var(--sp-font-base);
+  border-radius: var(--sp-radius-md);
+}
+
+/* -------------------------------------------------------------------------- */
+/* 6. Cards & Containers (.sp-card, .sp-glass-card)                          */
+/* -------------------------------------------------------------------------- */
+.sp-card {
+  background: var(--sp-bg-surface);
+  border: 1px solid var(--sp-border-color);
+  border-radius: var(--sp-radius-lg);
+  box-shadow: var(--sp-shadow-sm);
+  padding: 28px;
+  transition: border-color var(--sp-transition-normal), box-shadow var(--sp-transition-normal);
+}
+
+.sp-glass-card {
+  background: var(--sp-glass-bg);
+  border: 1px solid var(--sp-glass-border);
+  backdrop-filter: var(--sp-glass-blur);
+  -webkit-backdrop-filter: var(--sp-glass-blur);
+  border-radius: var(--sp-radius-lg);
+  box-shadow: var(--sp-shadow-md);
+  padding: 32px;
+}
+
+/* -------------------------------------------------------------------------- */
+/* 7. Badges & Pulsing Status (.sp-badge, .sp-pulse-dot)                      */
+/* -------------------------------------------------------------------------- */
+.sp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: var(--sp-radius-full);
+  font-size: var(--sp-font-xs);
+  font-weight: 600;
+  border: 1px solid var(--sp-border-color);
+  background: var(--sp-bg-subtle);
+  color: var(--sp-text-secondary);
+}
+
+.sp-badge-primary {
+  background: var(--sp-primary-light);
+  color: var(--sp-primary);
+  border-color: rgba(217, 119, 87, 0.25);
+}
+
+.sp-pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--sp-success);
+  display: inline-block;
+  position: relative;
+}
+
+.sp-pulse-dot::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background-color: var(--sp-success);
+  opacity: 0.4;
+  animation: sp-pulse 2.2s infinite ease-in-out;
+}
+
+@keyframes sp-pulse {
+  0% { transform: scale(1); opacity: 0.5; }
+  50% { transform: scale(1.7); opacity: 0; }
+  100% { transform: scale(1); opacity: 0; }
+}
+
+/* -------------------------------------------------------------------------- */
+/* 8. Forms (.sp-field, .sp-input)                                           */
+/* -------------------------------------------------------------------------- */
+.sp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+.sp-label {
+  font-size: var(--sp-font-xs);
+  font-weight: 600;
+  color: var(--sp-text-secondary);
+}
+
+.sp-input, .sp-select, .sp-textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px;
+  font-family: var(--sp-font-sans);
+  font-size: var(--sp-font-sm);
+  color: var(--sp-text-primary);
+  background-color: var(--sp-bg-surface);
+  border: 1px solid var(--sp-border-strong);
+  border-radius: var(--sp-radius-md);
+  outline: none;
+  transition: border-color var(--sp-transition-fast), box-shadow var(--sp-transition-fast);
+}
+
+.sp-input:focus, .sp-select:focus, .sp-textarea:focus {
+  border-color: var(--sp-text-primary);
+  box-shadow: 0 0 0 3px rgba(36, 33, 29, 0.1);
+}
+
+.sp-input::placeholder, .sp-textarea::placeholder {
+  color: var(--sp-text-muted);
+}
+
+/* -------------------------------------------------------------------------- */
+/* 9. Loading & Spinners                                                      */
+/* -------------------------------------------------------------------------- */
+.sp-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2.5px solid var(--sp-border-color);
+  border-top-color: var(--sp-primary);
+  border-radius: 50%;
+  animation: sp-spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+@keyframes sp-spin {
+  to { transform: rotate(360deg); }
+}
