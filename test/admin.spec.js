@@ -21,13 +21,16 @@ let seedUserId;
 
 // 辅助函数：发送管理 API 请求
 async function adminFetch(path, options = {}) {
-	const { method = "GET", body, token = ADMIN_TOKEN } = options;
+	const { method = "GET", body, token = ADMIN_TOKEN, accessJwt } = options;
 	const headers = {
 		"Content-Type": "application/json",
 		"X-CSRF-Token": "test-csrf",
 	};
 	if (token) {
 		headers["Authorization"] = `Bearer ${token}`;
+	}
+	if (accessJwt) {
+		headers["Cf-Access-Jwt-Assertion"] = accessJwt;
 	}
 	if (options.csrfCookie) {
 		headers["Cookie"] = `admin_csrf=${options.csrfCookie}`;
@@ -87,6 +90,21 @@ describe("Admin API - 鉴权", () => {
 	it("错误的 ADMIN_API_TOKEN 返回 401", async () => {
 		const res = await adminFetch("/api/admin/keys", { token: "wrong-token" });
 		expect(res.status).toBe(401);
+	});
+
+	it("伪造的 Cloudflare Access header 返回 401", async () => {
+		const res = await adminFetch("/api/admin/keys", {
+			token: "",
+			accessJwt: "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJhdHRhY2tlciJ9.invalid",
+		});
+		expect(res.status).toBe(401);
+	});
+
+	it("workers.dev 不提供管理后台入口", async () => {
+		const res = await SELF.fetch("https://studypulse-cloud-ai.workers.dev/api/admin/keys", {
+			headers: { Authorization: `Bearer ${ADMIN_TOKEN}` },
+		});
+		expect(res.status).toBe(404);
 	});
 
 	it("正确的 ADMIN_API_TOKEN 可以访问管理 API", async () => {

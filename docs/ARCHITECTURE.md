@@ -74,7 +74,8 @@ Worker 使用**主机名路由**实现公开 API 与管理后台的域名隔离�
 |--------|------|------|
 | `spapi.chenkai.space` | 公开 API | `GET /` 健康检查, `POST /v1/chat` AI 对话 |
 | `admin.chenkai.space` | 管理后台 | `GET /admin` WebUI, `/api/admin/*` 管理 API |
-| `localhost` / `*.workers.dev` | 本地开发 | 路径路由：`/admin/*` 走管理后台，其余走公开 API |
+| `localhost` | 本地开发 | 路径路由：`/admin/*` 走管理后台，其余走公开 API |
+| `*.workers.dev` | Worker 调试/预览 | 管理后台路径禁用，其余路径走公开 API |
 
 ```javascript
 // src/index.js — 路由分发核心逻辑
@@ -152,8 +153,9 @@ export async function sha256Hex(text) {
 
 **通道 1 — Cloudflare Access（推荐）：**
 - 检查 `Cf-Access-Jwt-Assertion` header
-- Cloudflare Access 已在 Workers 之前校验 JWT，header 存在即通过
-- 零代码鉴权逻辑
+- 使用 `CF_ACCESS_TEAM_DOMAIN` 对应团队的 `/cdn-cgi/access/certs` JWKS 校验 RS256 签名
+- 同时校验 `iss`（团队域名）和 `aud`（`CF_ACCESS_AUDIENCE` 应用 AUD tag）
+- 未配置校验参数或校验失败时不通过
 
 **通道 2 — ADMIN_API_TOKEN 降级：**
 - `Authorization: Bearer <ADMIN_API_TOKEN>`
@@ -735,6 +737,8 @@ export async function getDashboardStats(env) {
 |--------|------|---------|
 | `MINIMAX_API_KEY` | 上游 MiniMax API 鉴权 Key | `wrangler secret put MINIMAX_API_KEY` |
 | `ADMIN_API_TOKEN` | 管理后台降级认证 Token | `wrangler secret put ADMIN_API_TOKEN` |
+| `CF_ACCESS_TEAM_DOMAIN` | Cloudflare Access 团队域名 | Worker 环境变量，例如 `https://team.cloudflareaccess.com` |
+| `CF_ACCESS_AUDIENCE` | 管理后台 Access Application AUD tag | Worker 环境变量 |
 
 本地开发通过 `.dev.vars` 注入假值（不提交到 Git）：
 
