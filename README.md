@@ -493,6 +493,9 @@ git push origin main
 > `content` 数组优先级高于 `message`。两者同时存在时以 `content` 为准。
 > `model` 可选，默认 `"MiniMax-M3"`。
 
+应用层限制：请求体最多 256 KiB，文本消息（包括多模态项中的 `text`）最多 32,768 个字符，
+`content` 数组最多 16 项。请求体超限返回 `413`，字段或数组超限返回 `400`。
+
 ### 非流式成功响应
 
 ```json

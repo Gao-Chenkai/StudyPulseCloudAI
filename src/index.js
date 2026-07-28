@@ -65,6 +65,85 @@ const SUPPORT_HOSTNAME = "support.chenkai.space";
 const AUTH_HOSTNAME = "auth.chenkai.space";
 const DASH_HOSTNAME = "dash.studypulse.chenkai.space";
 
+// 应用层限制不能依赖 Cloudflare 的平台请求体上限：request.json() 会在
+// 校验前把整个请求体读入内存，并且多模态 payload 还可能放大上游 AI 成本。
+export const CHAT_MAX_BODY_BYTES = 256 * 1024;
+export const CHAT_MAX_MESSAGE_CHARS = 32 * 1024;
+export const CHAT_MAX_CONTENT_ITEMS = 16;
+
+class ChatBodyTooLargeError extends Error {
+	constructor() {
+		super("Chat request body exceeds the application limit");
+		this.code = "CHAT_BODY_TOO_LARGE";
+	}
+}
+
+/**
+ * 在 JSON.parse 前限制 /v1/chat 的请求体大小。
+ * Content-Length 可能缺失或不可信，因此仍需限制实际读取的字节数。
+ */
+async function parseChatRequestBody(request) {
+	const contentLength = request.headers.get("Content-Length");
+	if (contentLength !== null) {
+		const declaredLength = Number(contentLength);
+		if (Number.isFinite(declaredLength) && declaredLength > CHAT_MAX_BODY_BYTES) {
+			throw new ChatBodyTooLargeError();
+		}
+	}
+
+	if (!request.body) {
+		return JSON.parse(await request.text());
+	}
+
+	const reader = request.body.getReader();
+	const chunks = [];
+	let totalBytes = 0;
+
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		if (!value) continue;
+
+		totalBytes += value.byteLength;
+		if (totalBytes > CHAT_MAX_BODY_BYTES) {
+			// 返回 413 时 runtime 也可能同时取消请求流，忽略这个竞态。
+			await reader.cancel().catch(() => {});
+			throw new ChatBodyTooLargeError();
+		}
+		chunks.push(value);
+	}
+
+	const bytes = new Uint8Array(totalBytes);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+
+	return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+function validateChatPayload(body) {
+	if (typeof body?.message === "string" && body.message.length > CHAT_MAX_MESSAGE_CHARS) {
+		return "Message too long";
+	}
+
+	if (Array.isArray(body?.content)) {
+		if (body.content.length > CHAT_MAX_CONTENT_ITEMS) {
+			return "Too many content items";
+		}
+
+		// 多模态文本也属于用户消息，不能绕过 message 的长度限制。
+		for (const item of body.content) {
+			if (typeof item?.text === "string" && item.text.length > CHAT_MAX_MESSAGE_CHARS) {
+				return "Content item text too long";
+			}
+		}
+	}
+
+	return null;
+}
+
 /**
  * Worker 默认导出（Cloudflare Workers 标准格式）
  */
@@ -490,6 +569,9 @@ async function handleUserProfile(request, env) {
  *
  * 错误码：
  *   400  Invalid JSON Body        Body 非合法 JSON
+ *   400  Message too long         文本消息超过应用层限制
+ *   400  Too many content items   多模态 content 数组超过应用层限制
+ *   413  Request body too large   请求体超过应用层限制
  *   401  Missing API Key          未带 Authorization
  *   403  Invalid API Key          Key 无效 / Key 已禁用
  *   429  API quota exceeded       请求次数已达上限
@@ -499,6 +581,7 @@ async function handleUserProfile(request, env) {
  * 额度规则：仅在 MiniMax 调用成功后才自增 request_count。
  *           鉴权失败、上游失败、内部错误一律不计次。
  * 日志规则：成功或失败都写 request_logs（通过 ctx.waitUntil 异步不阻塞响应）。
+ * 应用层限制：请求体 256 KiB，文本消息 32,768 字符，content 数组 16 项。
  */
 async function handleChat(request, env, ctx) {
 	const startTime = Date.now();
@@ -524,15 +607,26 @@ async function handleChat(request, env, ctx) {
 		);
 	}
 
-	// 3. 解析 Body
+	// 3. 解析 Body（先限制读取大小，再解析 JSON）
 	let body;
 	try {
-		body = await request.json();
-	} catch {
+		body = await parseChatRequestBody(request);
+	} catch (err) {
+		if (err?.code === "CHAT_BODY_TOO_LARGE") {
+			return Response.json(
+				{ error: "Request body too large" },
+				{ status: 413 },
+			);
+		}
 		return Response.json(
 			{ error: "Invalid JSON Body" },
 			{ status: 400 },
 		);
+	}
+
+	const payloadError = validateChatPayload(body);
+	if (payloadError) {
+		return Response.json({ error: payloadError }, { status: 400 });
 	}
 
 	// 4. 组装 user 消息
