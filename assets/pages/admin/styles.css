@@ -1,4 +1,47 @@
-:root { --primary:#2563eb; --primary-hover:#1d4ed8; --danger:#dc2626; --danger-hover:#b91c1c; --success:#16a34a; --warning:#d97706; --violet:#7c3aed; --bg:#fff; --surface:#fff; --surface-soft:#f8fafc; --border:#e5e7eb; --border-strong:#d1d5db; --text:#111827; --text-muted:#6b7280; --text-soft:#9ca3af; --radius:12px; --shadow:0 8px 24px rgba(15,23,42,.05); }
+:root {
+  --sp-primary: #d97757;
+  --sp-primary-hover: #c86648;
+  --sp-primary-light: rgba(217, 119, 87, 0.12);
+
+  --sp-bg-page: #f7f4ec;
+  --sp-bg-surface: #fcfaf5;
+  --sp-bg-subtle: #efebe1;
+  --sp-bg-hover: #f3efe6;
+  
+  --sp-text-primary: #24211d;
+  --sp-text-secondary: #625d55;
+  --sp-text-muted: #898278;
+  --sp-text-on-primary: #fcfaf5;
+
+  --sp-border-color: #d8d1c5;
+  --sp-border-subtle: #eae4d9;
+  --sp-border-strong: #b8b0a3;
+
+  --sp-success: #557a63;
+  --sp-warning: #a86f32;
+  --sp-danger: #a84f45;
+
+  --sp-font-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", Georgia, serif;
+  --sp-font-sans: "Inter", "SF Pro Text", "Noto Sans SC", "PingFang SC", system-ui, sans-serif;
+  
+  --primary: var(--sp-primary);
+  --primary-hover: var(--sp-primary-hover);
+  --danger: var(--sp-danger);
+  --danger-hover: #964239;
+  --success: var(--sp-success);
+  --warning: var(--sp-warning);
+  --violet: var(--sp-primary);
+  --bg: var(--sp-bg-page);
+  --surface: var(--sp-bg-surface);
+  --surface-soft: var(--sp-bg-subtle);
+  --border: var(--sp-border-color);
+  --border-strong: var(--sp-border-strong);
+  --text: var(--sp-text-primary);
+  --text-muted: var(--sp-text-secondary);
+  --text-soft: var(--sp-text-muted);
+  --radius: 10px;
+  --shadow: 0 4px 16px -2px rgba(36, 33, 29, 0.06);
+}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{background:#fff} body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;background:#fff;color:var(--text);line-height:1.55;min-height:100vh;font-size:14px}
 button,input,select{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid rgba(37,99,235,.2);outline-offset:2px}
