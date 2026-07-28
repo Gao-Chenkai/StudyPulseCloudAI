@@ -1,6 +1,32 @@
 import { env, createExecutionContext, waitOnExecutionContext, SELF } from "cloudflare:test";
 import { describe, it, expect } from "vitest";
 import worker from "../src";
+import { sha256Hex } from "../src/auth.js";
+
+async function createUserApiKey({ membershipType = "free", requestKey = `sp_stream_${crypto.randomUUID()}` } = {}) {
+	const userId = crypto.randomUUID();
+	const keyHash = await sha256Hex(requestKey);
+	await env.StudyPulseDB.prepare(
+		`INSERT INTO users (id, email, email_normalized, email_verified, role, membership_type)
+		 VALUES (?, ?, ?, 1, 'user', ?)`,
+	).bind(userId, `${userId}@example.com`, `${userId}@example.com`, membershipType).run();
+	await env.StudyPulseDB.prepare(
+		`INSERT INTO api_keys (key_hash, name, user_id, enabled, request_limit)
+		 VALUES (?, 'Stream quota regression key', ?, 1, NULL)`,
+	).bind(keyHash, userId).run();
+	return { userId, requestKey };
+}
+
+async function streamChat(requestKey, body) {
+	return SELF.fetch("http://localhost/v1/chat", {
+		method: "POST",
+		headers: {
+			"X-API-Key": requestKey,
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify(body),
+	});
+}
 
 describe("StudyPulse Cloud AI v0.2-beta", () => {
 	describe("GET / (health check)", () => {
@@ -53,6 +79,33 @@ describe("StudyPulse Cloud AI v0.2-beta", () => {
 			expect(response.status).toBe(502);
 			const json = await response.json();
 			expect(json.error).toBe("AI request failed");
+		});
+	});
+
+	describe("POST /v1/chat stream access checks", () => {
+		it("rejects streaming requests when the daily quota is exhausted", async () => {
+			const { userId, requestKey } = await createUserApiKey();
+			await env.StudyPulseDB.prepare(
+				`INSERT INTO usage_records (user_id, total_tokens) VALUES ${Array.from({ length: 5 }, () => "(?, 0)").join(", ")}`,
+			).bind(...Array(5).fill(userId)).run();
+
+			const response = await streamChat(requestKey, { stream: true, message: "quota" });
+			expect(response.status).toBe(429);
+			expect(await response.json()).toEqual({ error: "Daily request limit exceeded" });
+		});
+
+		it("rejects streaming requests for models outside the membership plan", async () => {
+			const { requestKey } = await createUserApiKey();
+
+			const response = await streamChat(requestKey, {
+				stream: true,
+				model: "model-not-in-free-plan",
+				message: "model access",
+			});
+			expect(response.status).toBe(403);
+			expect(await response.json()).toEqual({
+				error: 'Model "model-not-in-free-plan" is not available on your plan',
+			});
 		});
 	});
 });
