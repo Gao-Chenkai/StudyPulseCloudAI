@@ -19,7 +19,7 @@ describe("static UI pages", () => {
 	});
 
 	it("serves dashboard aliases from the same static shell", async () => {
-		for (const path of ["/dashboard", "/contributions", "/feedback"]) {
+		for (const path of ["/dashboard", "/contributions", "/feedback", "/security"]) {
 			const response = await page("dash.studypulse.chenkai.space", path);
 			const html = await response.text();
 			expect(response.status).toBe(200);

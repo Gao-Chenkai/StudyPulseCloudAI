@@ -13,9 +13,11 @@ describe("auth login page", () => {
 		expect(response.headers.get("Content-Security-Policy")).toContain("script-src 'self'");
 		expect(html).toContain('<link rel="stylesheet" href="/pages/auth/styles.css">');
 		expect(html).toContain('<script src="/pages/auth/app.js" defer></script>');
+		expect(html).toContain("使用 Passkey 登录");
 		expect(html).not.toContain("<style>");
 		expect(html).not.toContain("<script>");
 		expect(script).toContain("getAppReturnTo");
+		expect(script).toContain("/auth/passkey/login/options");
 		expect(() => new Function(script)).not.toThrow();
 	});
 });

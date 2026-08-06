@@ -32,6 +32,7 @@
 			"/admin/",
 			"/dashboard",
 			"/dashboard/",
+			"/security",
 			"/contributions",
 			"/feedback",
 			"/support",

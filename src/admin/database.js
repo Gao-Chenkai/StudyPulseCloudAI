@@ -428,12 +428,18 @@ export async function listUsers(env, filters = {}) {
 			                   WHERE oa.user_id = users.id AND oa.provider = 'github'
 		                  )
 		             THEN 1 ELSE 0 END AS github_bound,
-		        CASE WHEN (password_hash IS NOT NULL AND password_hash <> '')
-		                  OR EXISTS (
-			                  SELECT 1 FROM user_credentials uc
-			                   WHERE uc.user_id = users.id AND uc.password_hash <> ''
-		                  )
-		             THEN 1 ELSE 0 END AS password_set
+				     CASE WHEN (password_hash IS NOT NULL AND password_hash <> '')
+				                  OR EXISTS (
+				                  SELECT 1 FROM user_credentials uc
+				                   WHERE uc.user_id = users.id AND uc.password_hash <> ''
+				                  )
+				             THEN 1 ELSE 0 END AS password_set
+				   ,CASE WHEN EXISTS (
+				                  SELECT 1 FROM user_passkeys up
+				                   WHERE up.user_id = users.id
+				                  )
+				             THEN 1 ELSE 0 END AS passkey_bound
+				   ,(SELECT COUNT(*) FROM user_passkeys upc WHERE upc.user_id = users.id) AS passkey_count
 		   FROM users
 		   ${where}
 		  ORDER BY created_at DESC
@@ -462,6 +468,8 @@ export async function deleteUserAccount(env, userId) {
 		db.prepare("DELETE FROM api_keys WHERE user_id = ?").bind(userId),
 		db.prepare("DELETE FROM sessions WHERE user_id = ?").bind(userId),
 		db.prepare("DELETE FROM user_credentials WHERE user_id = ?").bind(userId),
+		db.prepare("DELETE FROM user_passkeys WHERE user_id = ?").bind(userId),
+		db.prepare("DELETE FROM auth_challenges WHERE user_id = ?").bind(userId),
 		db.prepare("DELETE FROM email_verification_codes WHERE email_normalized = ? OR lower(trim(email)) = ?").bind(user.email_normalized, user.email_normalized),
 		db.prepare("DELETE FROM appeals WHERE user_id = ?").bind(userId),
 		db.prepare("DELETE FROM bans WHERE user_id = ?").bind(userId),
@@ -486,12 +494,19 @@ export async function getUserDetail(env, userId) {
 			                   WHERE oa.user_id = users.id AND oa.provider = 'github'
 		                  )
 		             THEN 1 ELSE 0 END AS github_bound,
-		        CASE WHEN (password_hash IS NOT NULL AND password_hash <> '')
-		                  OR EXISTS (
-			                  SELECT 1 FROM user_credentials uc
-			                   WHERE uc.user_id = users.id AND uc.password_hash <> ''
-		                  )
-		             THEN 1 ELSE 0 END AS password_set
+				     CASE WHEN (password_hash IS NOT NULL AND password_hash <> '')
+				                  OR EXISTS (
+				                  SELECT 1 FROM user_credentials uc
+				                   WHERE uc.user_id = users.id AND uc.password_hash <> ''
+				                  )
+				             THEN 1 ELSE 0 END AS password_set
+				   ,CASE WHEN EXISTS (
+				                  SELECT 1 FROM user_passkeys up
+				                   WHERE up.user_id = users.id
+				                  )
+				             THEN 1 ELSE 0 END AS passkey_bound
+				   ,(SELECT COUNT(*) FROM user_passkeys upc WHERE upc.user_id = users.id) AS passkey_count
+				   ,(SELECT MAX(last_used_at) FROM user_passkeys upl WHERE upl.user_id = users.id) AS passkey_last_used_at
 		   FROM users
 		  WHERE id = ?`,
 	)

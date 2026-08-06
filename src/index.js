@@ -37,6 +37,7 @@ import {
 } from "./support/routes.js";
 import { handleUserDashboardApi } from "./dashboard/routes.js";
 import { authPageOptions, serveAdminPage, serveStaticPage } from "./ui/static-pages.js";
+import { handlePasskeyRoute, isPasskeyRoute } from "./auth/passkey.js";
 import {
 	handleAuthSendCode,
 	handlePasswordChange,
@@ -199,10 +200,11 @@ export default {
 				if (pathname === "/login" && method === "GET") return withCors(await serveStaticPage(request, env, "/pages/auth/index.html", authPageOptions()), request);
 				if (pathname === "/support" && method === "GET") return withCors(await serveStaticPage(request, env, "/pages/support/index.html"), request);
 				if (pathname === "/oauth/github/bind" && method === "GET") return withCors(await serveStaticPage(request, env, "/pages/auth-bind/index.html", authPageOptions()), request);
-				if ((pathname === "/dashboard" || pathname === "/dashboard/" || pathname === "/contributions" || pathname === "/feedback") && method === "GET") return withCors(await serveStaticPage(request, env, "/pages/dashboard/index.html"), request);
+				if ((pathname === "/dashboard" || pathname === "/dashboard/" || pathname === "/contributions" || pathname === "/feedback" || pathname === "/security") && method === "GET") return withCors(await serveStaticPage(request, env, "/pages/dashboard/index.html"), request);
 				if ((pathname === "/admin" || pathname === "/admin/") && method === "GET") return withCors(await serveAdminPage(request, env), request);
 				if (pathname.startsWith("/appeal/") && method === "GET") return withCors(await serveStaticPage(request, env, "/pages/appeal/index.html"), request);
 				if (pathname === "/api/user/dashboard" || pathname === "/api/user/contributions" || pathname === "/api/user/feedback") return withCors(await handleUserDashboardApi(request, env, pathname), request);
+				if (isPasskeyRoute(pathname)) return withCors(await handlePasskeyRoute(request, env, pathname), request);
 				if (
 					pathname.startsWith("/api/admin/") ||
 					pathname.startsWith("/admin")
@@ -241,8 +243,9 @@ function corsHeaders(request) {
 }
 
 function handleDashboard(request, env, pathname, method) {
-	if ((pathname === "/" || pathname === "/dashboard" || pathname === "/dashboard/" || pathname === "/contributions" || pathname === "/feedback") && method === "GET") return serveStaticPage(request, env, "/pages/dashboard/index.html");
+	if ((pathname === "/" || pathname === "/dashboard" || pathname === "/dashboard/" || pathname === "/contributions" || pathname === "/feedback" || pathname === "/security") && method === "GET") return serveStaticPage(request, env, "/pages/dashboard/index.html");
 	if (pathname === "/api/user/dashboard" || pathname === "/api/user/contributions" || pathname === "/api/user/feedback") return handleUserDashboardApi(request, env, pathname);
+	if (isPasskeyRoute(pathname)) return handlePasskeyRoute(request, env, pathname);
 	if (pathname === "/api/v1/auth/logout" && method === "POST") return destroySession(request, env).then(() => Response.json({ success: true }));
 	return Response.json({ error: "Not Found" }, { status: 404 });
 }
@@ -313,6 +316,8 @@ function handleSupport(request, env, pathname, method) {
 // ────────────────────────────────────────────────────────────────────────────
 
 function handlePublicApi(request, env, ctx, pathname, method) {
+	if (isPasskeyRoute(pathname)) return handlePasskeyRoute(request, env, pathname);
+
 	// 健康检查
 	if (pathname === "/" && method === "GET") {
 		return handleHealth();
@@ -384,6 +389,7 @@ function handlePublicApi(request, env, ctx, pathname, method) {
 
 async function handleAuthCenter(request, env, pathname, method) {
 	if ((pathname === "/" || pathname === "/login") && method === "GET") return serveStaticPage(request, env, "/pages/auth/index.html", authPageOptions());
+	if (isPasskeyRoute(pathname)) return handlePasskeyRoute(request, env, pathname);
 	if (pathname === "/oauth/github/start" && method === "GET") return handleGitHubStart(request, env);
 	if (pathname === "/oauth/github/callback" && method === "GET") return handleGitHubCallback(request, env);
 	if (pathname === "/oauth/github/bind" && method === "GET") return serveStaticPage(request, env, "/pages/auth-bind/index.html", authPageOptions());
