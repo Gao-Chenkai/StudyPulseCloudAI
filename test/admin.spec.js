@@ -332,20 +332,30 @@ describe("Admin API - 用户认证状态", () => {
 		await env.StudyPulseDB.prepare(
 			"INSERT INTO user_credentials (user_id,password_hash,password_salt,password_iterations,password_updated_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
 		).bind(userId, "not-returned", "", 12, new Date().toISOString(), new Date().toISOString(), new Date().toISOString()).run();
+		await env.StudyPulseDB.prepare(
+			"INSERT INTO user_passkeys (credential_id,user_id,public_key,name,last_used_at) VALUES (?,?,?,?,?)",
+		).bind(`admin-test-${crypto.randomUUID()}`, userId, "not-returned", "Admin test device", new Date().toISOString()).run();
 
 		const list = await adminFetch("/api/admin/users");
 		expect(list.status).toBe(200);
 		const listed = (await list.json()).data.find((user) => user.id === userId);
 		expect(listed.github_bound).toBe(1);
 		expect(listed.password_set).toBe(1);
+		expect(listed.passkey_bound).toBe(1);
+		expect(listed.passkey_count).toBe(1);
 		expect(listed).not.toHaveProperty("password_hash");
+		expect(listed).not.toHaveProperty("public_key");
 
 		const detail = await adminFetch(`/api/admin/users/${encodeURIComponent(userId)}`);
 		expect(detail.status).toBe(200);
 		const detailed = (await detail.json()).data;
 		expect(detailed.github_bound).toBe(1);
 		expect(detailed.password_set).toBe(1);
+		expect(detailed.passkey_bound).toBe(1);
+		expect(detailed.passkey_count).toBe(1);
+		expect(detailed.passkey_last_used_at).toBeTruthy();
 		expect(detailed).not.toHaveProperty("password_hash");
+		expect(detailed).not.toHaveProperty("public_key");
 	});
 });
 
@@ -356,6 +366,8 @@ describe("Admin API - 删除用户", () => {
 		await env.StudyPulseDB.prepare("INSERT INTO users (id,email,email_normalized,email_verified) VALUES (?,?,?,1)").bind(userId, email, email).run();
 		await env.StudyPulseDB.prepare("INSERT INTO api_keys (key_hash,name,user_id) VALUES (?,?,?)").bind(await sha256Hex(`delete-${userId}`), "待删除 Key", userId).run();
 		await env.StudyPulseDB.prepare("INSERT INTO usage_records (user_id,total_tokens) VALUES (?,?)").bind(userId, 123).run();
+		await env.StudyPulseDB.prepare("INSERT INTO user_passkeys (credential_id,user_id,public_key) VALUES (?,?,?)").bind(`delete-passkey-${crypto.randomUUID()}`, userId, "not-returned").run();
+		await env.StudyPulseDB.prepare("INSERT INTO auth_challenges (token_hash,kind,user_id,expires_at) VALUES (?,?,?,?)").bind(await sha256Hex(`delete-challenge-${userId}`), "passkey_registration", userId, new Date(Date.now() + 60_000).toISOString()).run();
 
 		const res = await adminFetch("/api/admin/users/delete", { method: "POST", body: { user_id: userId }, csrfCookie: "test-csrf" });
 		expect(res.status).toBe(200);
@@ -363,6 +375,8 @@ describe("Admin API - 删除用户", () => {
 		expect(await env.StudyPulseDB.prepare("SELECT id FROM users WHERE id=?").bind(userId).first()).toBeNull();
 		expect(await env.StudyPulseDB.prepare("SELECT id FROM api_keys WHERE user_id=?").bind(userId).first()).toBeNull();
 		expect(await env.StudyPulseDB.prepare("SELECT user_id FROM usage_records WHERE user_id=?").bind(userId).first()).toBeNull();
+		expect(await env.StudyPulseDB.prepare("SELECT user_id FROM user_passkeys WHERE user_id=?").bind(userId).first()).toBeNull();
+		expect(await env.StudyPulseDB.prepare("SELECT user_id FROM auth_challenges WHERE user_id=?").bind(userId).first()).toBeNull();
 	});
 
 	it("不允许删除管理员账号", async () => {
